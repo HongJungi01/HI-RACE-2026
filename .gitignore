@@ -2,3 +2,6 @@
 .vscode/
 Competition/
 PythonRobotics/
+__pycache__/
+*.py[cod]
+*$py.class
