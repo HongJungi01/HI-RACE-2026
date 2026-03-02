@@ -1,6 +1,6 @@
 from array2Image import merge_rgb_to_bgr
 from colorExtractor import yellow_color_extractor, white_color_extractor
-from laneDetector import lane_extractor
+from laneExtractor import lane_extractor
 import cv2
 import numpy as np
 import time
