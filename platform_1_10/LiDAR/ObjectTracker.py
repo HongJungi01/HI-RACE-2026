@@ -192,13 +192,13 @@ class TrackedObject:
         self.kf.predict(dt)
 
     def correct(self, centroid: np.ndarray, points: np.ndarray,
-                prev_points: np.ndarray, use_icp: bool):
+                prev_points: np.ndarray, use_icp: bool, max_iter: int = 15):
         """
         관측값으로 보정. ICP를 사용하면 centroid 대신 정밀 변위를 관측에 반영.
         """
         if use_icp and prev_points.shape[0] >= 3 and points.shape[0] >= 3:
             # ICP로 정밀 변위 계산
-            displacement = _icp_translation(prev_points, points)
+            displacement = _icp_translation(prev_points, points, max_iter=max_iter)
             corrected_pos = self._raw_centroid + displacement
         else:
             corrected_pos = centroid
@@ -250,6 +250,7 @@ class ObjectTracker:
         self.measurement_noise = measurement_noise
 
         self._tracks: list[TrackedObject] = []
+        self._icp_max_iter: int = 15
 
     # ── 헝가리안 알고리즘 대체: 물체 수 ≤5 이므로 Greedy 최근접 매칭 ──
 
@@ -338,7 +339,8 @@ class ObjectTracker:
             det_centroid = centroids[:, d_idx]
             det_points = cluster_points_list[d_idx]
             prev_points = track.points
-            track.correct(det_centroid, det_points, prev_points, self.use_icp)
+            track.correct(det_centroid, det_points, prev_points,
+                          self.use_icp, max_iter=self._icp_max_iter)
 
         # 4) 미매칭 트랙 처리
         for t_idx in unmatched_tracks:
