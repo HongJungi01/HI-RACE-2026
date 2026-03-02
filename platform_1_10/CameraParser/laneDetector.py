@@ -93,14 +93,27 @@ def fit_poly(binary_mask, degree=5):
     except Exception:
         return None, None, None
 
-def generate_resampled_points(poly_func, y_min, y_max, count):
+def generate_resampled_points(poly_func, y_min, y_max, count, img_width, img_height, meters_per_pixel):
     if poly_func is None:
         return None, None
-    y_points = np.linspace(y_min, y_max, count)
-    x_points = poly_func(y_points)
-    return x_points, y_points
+    
+    # 1. 픽셀 좌표계에서의 Y값 샘플링
+    # y_max(차량과 가장 가까운 지점)을 시작점으로 설정하여 인덱스 0번이 되도록 함
+    y_pixel_points = np.linspace(y_max, y_min, count)
+    x_pixel_points = poly_func(y_pixel_points)
 
-def lane_extractor(binary_image, min_area=100, resample_count=50):
+    # 2. 월드 좌표계 변환 (차량 중심을 0,0으로 설정)
+    # 이미지 하단 중앙을 (0,0)으로 가정:
+    # World Y = (img_height - pixel_y) * meters_per_pixel (차량에서 멀어질수록 커짐)
+    # World X = (pixel_x - img_width / 2) * meters_per_pixel (중앙 기준 좌/우)
+    
+    world_y = (img_height - y_pixel_points) * meters_per_pixel
+    world_x = (x_pixel_points - img_width / 2) * meters_per_pixel
+    
+    return world_x, world_y
+
+def lane_extractor(binary_image, min_area=100, resample_count=50, meters_per_pixel=0.01):
+    img_height, img_width = binary_image.shape
     mask_left, mask_right = get_separated_masks(binary_image, min_area)
     skeleton_left = morphology_thinning(mask_left)
     skeleton_right = morphology_thinning(mask_right)
@@ -110,10 +123,10 @@ def lane_extractor(binary_image, min_area=100, resample_count=50):
     left_poly, left_y_min, left_y_max = fit_poly(processed_left)
     right_poly, right_y_min, right_y_max = fit_poly(processed_right)
     
-    left_x, left_y = generate_resampled_points(left_poly, left_y_min, left_y_max, resample_count)
-    right_x, right_y = generate_resampled_points(right_poly, right_y_min, right_y_max, resample_count)
+    # 수정된 resampling 함수 호출
+    left_x, left_y = generate_resampled_points(left_poly, left_y_min, left_y_max, resample_count, img_width, img_height, meters_per_pixel)
+    right_x, right_y = generate_resampled_points(right_poly, right_y_min, right_y_max, resample_count, img_width, img_height, meters_per_pixel)
     
-    # 결과를 np.array([[x...], [y...]]) 형식으로 변환
     left_lane = np.array([left_x, left_y]) if left_x is not None else np.array([[], []])
     right_lane = np.array([right_x, right_y]) if right_x is not None else np.array([[], []])
     
