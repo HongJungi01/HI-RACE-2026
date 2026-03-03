@@ -1,6 +1,6 @@
 .venv/
 .vscode/
-Competition/
+/Competition/
 PythonRobotics/
 __pycache__/
 *.py[cod]
