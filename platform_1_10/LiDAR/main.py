@@ -106,17 +106,6 @@ def track_objects(x_array, y_array, eps, min_samples, iterations):
     return np.array([ids, xs, ys, vxs, vys], dtype=np.float64)
 
 
-def dbscancluster(x_array, y_array, eps, min_samples):
-    """
-    기존 호환용: 클러스터 중심점만 반환 (추적 없음).
-
-    Returns:
-        np.ndarray: (2, N) — [[cx1, cx2, ...], [cy1, cy2, ...]]
-    """
-    centroids, _ = _dbscan_with_points(x_array, y_array, eps, min_samples)
-    return centroids
-
-
 def reset_tracker():
     """추적 상태 초기화 (필요시 LabVIEW에서 호출)."""
     _tracker.reset()
