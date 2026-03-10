@@ -114,15 +114,15 @@ def generate_resampled_points(poly_func, y_min, y_max, count, img_width, img_hei
 
 def lane_extractor(binary_image, min_area=100, resample_count=50, meters_per_pixel=0.01):
     img_height, img_width = binary_image.shape
+    
+    # 1. 좌/우 마스크만 분리 (이건 필요함)
     mask_left, mask_right = get_separated_masks(binary_image, min_area)
-    skeleton_left = morphology_thinning(mask_left)
-    skeleton_right = morphology_thinning(mask_right)
-    processed_left = post_process_skeleton(skeleton_left)
-    processed_right = post_process_skeleton(skeleton_right)
     
-    left_poly, left_y_min, left_y_max = fit_poly(processed_left)
-    right_poly, right_y_min, right_y_max = fit_poly(processed_right)
+    # 2. Thinning 없이 바로 피팅!
+    left_poly, left_y_min, left_y_max = fit_poly(mask_left)
+    right_poly, right_y_min, right_y_max = fit_poly(mask_right)
     
+    # ... 이후 샘플링 과정은 동일
     # 수정된 resampling 함수 호출
     left_x, left_y = generate_resampled_points(left_poly, left_y_min, left_y_max, resample_count, img_width, img_height, meters_per_pixel)
     right_x, right_y = generate_resampled_points(right_poly, right_y_min, right_y_max, resample_count, img_width, img_height, meters_per_pixel)
