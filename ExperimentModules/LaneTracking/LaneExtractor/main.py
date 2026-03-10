@@ -12,14 +12,21 @@ def main(Red_2D_array, Green_2D_array, Blue_2D_array):
 
     black_mask = black_color_extractor(bgr_image)
 
+    # DebugImageFolder 경로 설정 (상위 폴더의 DebugImageFolder)
+    debug_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "DebugImageFolder"))
+    
+    # 폴더가 없으면 생성
+    if not os.path.exists(debug_dir):
+        os.makedirs(debug_dir)
 
-    temp_image_path = "temp_black_mask.png"
+    temp_image_path = os.path.join(debug_dir, "temp_black_mask.png")
     cv2.imwrite(temp_image_path, black_mask)
 
     left_lane_mask, right_lane_mask = get_separated_masks(black_mask, min_area=1)
 
-    left_image_path = "temp_left_lane_mask.png"
-    right_image_path = "temp_right_lane_mask.png"
+    left_image_path = os.path.join(debug_dir, "temp_left_lane_mask.png")
+    right_image_path = os.path.join(debug_dir, "temp_right_lane_mask.png")
+    
     cv2.imwrite(left_image_path, left_lane_mask)
     cv2.imwrite(right_image_path, right_lane_mask)
 
