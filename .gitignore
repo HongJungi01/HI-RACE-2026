@@ -1,7 +1,8 @@
 .venv/
 .vscode/
 /Competition/
-PythonRobotics/
 __pycache__/
 *.py[cod]
 *$py.class
+코드 배포/
+SimpleModules/
