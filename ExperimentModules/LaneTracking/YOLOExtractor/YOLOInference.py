@@ -1,36 +1,49 @@
-# inference.py
 import cv2
 import numpy as np
+import os
 from ultralytics import YOLO
 
-# 1. OpenVINO로 변환된 모델 로드
-model = YOLO('best_openvino_model/') 
+# 현재 파일의 위치를 기준으로 모델 폴더의 절대 경로 생성
+current_dir = os.path.dirname(os.path.abspath(__file__))
+model_path = os.path.join(current_dir, 'best_openvino_model')
 
-def get_binary_lane(frame):
-    # 2. 추론
-    results = model.predict(frame, imgsz=320, conf=0.3, verbose=False)
+# 모델 로드 (절대 경로 사용)
+lane_model = YOLO(model_path, task='segment')
+
+def extract_lane_binary(bgr_img):
+    """
+    BGR 이미지를 입력받아 차선 부분만 255(흰색), 나머지는 0(검은색)인 
+    바이너리 마스크 이미지를 반환합니다.
+    """
+    # 1. YOLO 추론 (BGR 이미지를 넣으면 내부에서 RGB로 자동 변환하여 처리함)
+    # imgsz는 학습과 동일하게 320, conf는 상황에 맞게 조절
+    results = lane_model.predict(bgr_img, imgsz=320, conf=0.4, verbose=False)
     
-    # 3. 빈 검정색 이미지 생성 (바이너리 마스크용)
-    h, w = frame.shape[:2]
-    lane_mask = np.zeros((h, w), dtype=np.uint8)
+    # 원본 이미지 크기
+    h, w = bgr_img.shape[:2]
     
-    # 4. 차선 검출 결과가 있다면 마스킹 수행
+    # 2. 결과 마스크가 있는지 확인
     if results[0].masks is not None:
-        # 모든 차선 마스크를 하나로 합침
-        for mask in results[0].masks.data:
-            m = mask.cpu().numpy()
-            m = cv2.resize(m, (w, h))
-            lane_mask[m > 0.5] = 255 # 차선 부분만 흰색(255)으로 채움
-            
-    return lane_mask # <-- 최종 바이너리 이미지 리턴
+        # 모든 검출된 객체(차선들)의 마스크를 하나로 합침 (Logical OR 연산)
+        # results[0].masks.data는 [N, 80, 80] 형태 (imgsz=320인 경우 출력 해상도)
+        masks = results[0].masks.data.cpu().numpy()
+        combined_mask = np.any(masks, axis=0).astype(np.uint8)
+        
+        # 3. 모델 출력 크기(80x80 등)를 원본 이미지 크기로 복원
+        binary_output = cv2.resize(combined_mask, (w, h), interpolation=cv2.INTER_LINEAR)
+        
+        # 4. 0과 1 상태를 0과 255로 변환
+        binary_output = (binary_output * 255).astype(np.uint8)
+        
+        return binary_output
+    else:
+        # 검출된 차선이 없으면 빈 검정 이미지 반환
+        return np.zeros((h, w), dtype=np.uint8)
 
-# OpenCV 메인 루프
-cap = cv2.VideoCapture('road_video.mp4')
-while cap.isOpened():
-    ret, frame = cap.read()
-    if not ret: break
-    
-    binary_img = get_binary_lane(frame) # 목표 달성
-    
-    cv2.imshow('Binary Lane', binary_img)
-    if cv2.waitKey(1) & 0xFF == ord('q'): break
+# --- 실제 사용 예시 (다른 CV 로직과의 연결) ---
+# img = cv2.imread('road.jpg') # BGR 이미지 읽기
+# lane_mask = extract_lane_binary(img) # 바이너리 마스크 획득
+
+# 이제 lane_mask를 가지고 다른 CV 처리를 수행:
+# 예: 차선 부분만 컬러로 추출하기
+# color_lane = cv2.bitwise_and(img, img, mask=lane_mask)
