@@ -2,10 +2,22 @@ import numpy as np
 import cv2
 import os
 
+# NumPy 2.0+ 호환성을 위한 패치
+if not hasattr(np, 'trapz') and hasattr(np, 'trapezoid'):
+    np.trapz = np.trapezoid
+
 
 # ============================================================
 # 기본 유틸리티 함수
 # ============================================================
+
+def preprocess_to_binary(image):
+
+    # 4. Closing
+    close_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
+    binary_closed = cv2.morphologyEx(image, cv2.MORPH_CLOSE, close_kernel)
+    
+    return binary_closed
 
 def fit_poly(binary_mask, degree=5):
     y_coords, x_coords = np.where(binary_mask > 0)
@@ -99,12 +111,11 @@ def filter_lane_candidates(binary_image, min_area=100, min_span=50, max_rmse=10.
         if poly_func is None:
             continue
 
-        # 스팬 거리: 피팅된 곡선의 호 길이 (arc length)
-        # L = ∫ sqrt(1 + (dx/dy)²) dy
-        deriv = np.polyder(poly_func)
-        y_samples = np.linspace(y_min, y_max, 100)
-        integrand = np.sqrt(1 + deriv(y_samples) ** 2)
-        span = np.trapz(integrand, y_samples)
+        # 스팬 거리: 클러스터 내 두 끝점 간의 유클리드 거리
+        ys, xs = np.where(cluster_mask > 0)
+        p1 = (xs[0], ys[0])
+        p2 = (xs[-1], ys[-1])
+        span = np.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
 
         if span < min_span or rmse > max_rmse:
             continue

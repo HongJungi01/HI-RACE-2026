@@ -22,7 +22,7 @@ def yellow_color_extractor(image):
 
     return yellow_mask
 
-def white_color_extractor(image):
+def white_color_extractor(image, lower_level=220):
     """
     This function takes an image and extracts the white color regions.
     Parameters:
@@ -35,7 +35,7 @@ def white_color_extractor(image):
     hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
     # Define the lower and upper bounds for white color in HSV
-    lower_white = np.array([0, 0, 200])
+    lower_white = np.array([0, 0, lower_level])
     upper_white = np.array([180, 30, 255])
 
     # Create a binary mask where white colors are white and the rest are black
