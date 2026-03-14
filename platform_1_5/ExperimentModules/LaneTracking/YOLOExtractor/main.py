@@ -12,12 +12,16 @@ if not os.path.exists(debug_dir):
     os.makedirs(debug_dir)
     
 def main(Red_2D_array, Green_2D_array, Blue_2D_array, min_area, min_span, max_rmse, poly_degree=2):
-        # 2. BGR 이미지 통합
+        # 1. BGR 이미지 통합 (원본 해상도)
         bgr_image = a2i.merge_rgb_to_bgr(Red_2D_array, Green_2D_array, Blue_2D_array)
         
-        # 3. YOLO 추론을 통한 바이너리 마스크 획득
-        # YOLOInference.py의 extract_lane_binary 함수를 호출합니다.
-        binary_mask = YOLOInference.extract_lane_binary(bgr_image)
+        # 2. YOLO 추론
+        binary_mask_before_preprocessing = YOLOInference.extract_lane_binary(bgr_image)
+
+        # 3. ROI 크롭 및 리사이즈 (y=79 ~ y=230 영역을 310px로 확장)
+        # 차선이 집중된 영역을 캘리브레이션 기준인 310 높이에 맞춤
+        roi_img = binary_mask_before_preprocessing[79:230, :] 
+        binary_mask = cv2.resize(roi_img, (640, 310), interpolation=cv2.INTER_LINEAR)
         
         # 4. 결과 저장
         YOLO_lane_binary_path = os.path.join(debug_dir, "YOLO_lane_binary.png")
@@ -42,7 +46,7 @@ def main(Red_2D_array, Green_2D_array, Blue_2D_array, min_area, min_span, max_rm
         cte, heading = lD.calculate_stanley_error(cx, cy)
 
         # 10. 디버그 이미지 저장
-        debug_img = lD.draw_center_path_on_image(bgr_image, cx, cy)
+        debug_img = lD.draw_path_on_image(bgr_image, cx, cy, left_mask, right_mask, state)
         debug_img_path = os.path.join(debug_dir, "debug_image.png")
         cv2.imwrite(debug_img_path, debug_img)
 

@@ -286,9 +286,9 @@ def calculate_center_line(left_mask, right_mask, state, H=None,
 
     # ── 추가: 계산된 중심점들을 기반으로 다시 50개 포인트 피팅 (Smoothing) ──
     try:
-        # y_world 기준으로 3차 다항식 피팅 (x = f(y))
-        # 중심 경로는 비교적 단순하므로 3차 정도가 적당함
-        poly_coeffs = np.polyfit(center_y, center_x, 3)
+        # y_world 기준으로 5차 다항식 피팅 (x = f(y))
+        # 중심 경로는 비교적 단순하므로 5차 정도가 적당함
+        poly_coeffs = np.polyfit(center_y, center_x, 5)
         poly_func = np.poly1d(poly_coeffs)
         
         # 원래의 y 범위를 유지하며 균등하게 50개 생성
@@ -314,7 +314,7 @@ def _mask_has_lane(mask):
     # NULL 텍스트는 보통 소수 픽셀. 차선은 최소 수백 픽셀.
     # 하지만 draw_null의 결과도 수백 픽셀일 수 있으므로,
     # classify_left_right가 draw_null을 호출했는지를 텍스트 패턴으로 구분하기 어려움.
-    # 대신 mask에服 connected component 수와 모양으로 판단:
+    # 대신 mask에 connected component 수와 모양으로 판단:
     # draw_null 결과는 가운데에 텍스트가 있으므로 centroid가 중앙 근처.
     # 안전하게: NULL은 classify_left_right에서만 생성되므로
     # 여기서는 classify_left_right 호출 전의 원본 마스크를 받도록 main.py에서 조정.
@@ -358,33 +358,42 @@ def world_to_pixel(world_points, H):
     return pixel[:, 0], pixel[:, 1]
 
 
-def draw_center_path_on_image(image, center_world_x, center_world_y, H=None):
+def draw_path_on_image(image, center_world_x, center_world_y, left_mask=None, right_mask=None, state="none", H=None):
     """
-    월드 좌표 중심선을 다시 픽셀 좌표로 변환하여 입력 이미지 위에 그린다.
+    월드 좌표 중심선과 감지된 좌/우 차선의 피팅 경로를 픽셀 좌표로 변환하여 이미지 위에 그린다.
     """
     if H is None:
         H = _H
 
-    if len(center_world_x) == 0:
-        return image
-
-    # 월드 -> 픽셀 변환
-    world_pts = np.stack([center_world_x, center_world_y], axis=1)
-    px_x, px_y = world_to_pixel(world_pts, H)
-
-    # 그리기용 포인트 생성
-    pts = np.stack([px_x, px_y], axis=1).astype(np.int32)
-    
-    # 이미지 복사본 생성 후 그리기
     vis_img = image.copy()
-    
-    # 점들을 선으로 연결
-    for i in range(len(pts) - 1):
-        cv2.line(vis_img, tuple(pts[i]), tuple(pts[i+1]), (0, 255, 255), 2)  # 노란색 선
-        
-    # 포인트들 표시
-    for pt in pts:
-        cv2.circle(vis_img, tuple(pt), 3, (0, 0, 255), -1)  # 빨간색 점
+
+    def draw_path(wx, wy, color, line_thickness=2):
+        if len(wx) == 0: return
+        world_pts = np.stack([wx, wy], axis=1)
+        px_x, px_y = world_to_pixel(world_pts, H)
+        pts = np.stack([px_x, px_y], axis=1).astype(np.int32)
+        for i in range(len(pts) - 1):
+            cv2.line(vis_img, tuple(pts[i]), tuple(pts[i+1]), color, line_thickness)
+        for pt in pts:
+            cv2.circle(vis_img, tuple(pt), 2, color, -1)
+
+    # 1. 좌측 차선 그리기 (파란색)
+    if left_mask is not None and (state == "both" or state == "left"):
+        poly_l, min_l, max_l = fit_poly(left_mask, degree=5)
+        if poly_l:
+            lx, ly = generate_resampled_points_world(poly_l, min_l, max_l, RESAMPLE_COUNT, H)
+            draw_path(lx, ly, (255, 0, 0))
+
+    # 2. 우측 차선 그리기 (초록색)
+    if right_mask is not None and (state == "both" or state == "right"):
+        poly_r, min_r, max_r = fit_poly(right_mask, degree=5)
+        if poly_r:
+            rx, ry = generate_resampled_points_world(poly_r, min_r, max_r, RESAMPLE_COUNT, H)
+            draw_path(rx, ry, (0, 255, 0))
+
+    # 3. 중심선 그리기 (노란색)
+    if len(center_world_x) > 0:
+        draw_path(center_world_x, center_world_y, (0, 255, 255), line_thickness=3)
 
     return vis_img
 
@@ -432,3 +441,53 @@ def calculate_stanley_error(center_world_x, center_world_y, H=None):
     heading_rad = float(np.arctan2(path_dx, path_dy)) 
 
     return cte_m, heading_rad
+
+
+def fit_lane_in_world(mask, H, degree=3):
+    """마스크의 픽셀들을 월드 좌표로 먼저 변환한 후, 월드 좌표계에서 다항식을 피팅한다."""
+    y_coords, x_coords = np.where(mask > 0)
+    if len(y_coords) < 10: return None, 0, 0
+    
+    # 1. 모든 픽셀을 월드 좌표로 변환
+    pixel_pts = np.stack([x_coords, y_coords], axis=1)
+    wx, wy = pixel_to_world(pixel_pts, H)
+    
+    # 2. 월드 좌표계(Forward=y, Lateral=x)에서 피팅
+    # 차량 진행 방향(wy)을 독립변수로, 좌우 편차(wx)를 종속변수로 설정
+    try:
+        poly_coeff = np.polyfit(wy, wx, degree)
+        poly_func = np.poly1d(poly_coeff)
+        return poly_func, np.min(wy), np.max(wy)
+    except:
+        return None, 0, 0
+
+def draw_center_path_on_image(image, center_world_x, center_world_y, left_mask=None, right_mask=None, state="none", H=None):
+    if H is None: H = _H
+    vis_img = image.copy()
+
+    def draw_world_path(poly_func, y_min, y_max, color):
+        if poly_func is None: return
+        # 월드 좌표에서 균등하게 샘플링
+        wy = np.linspace(y_min, y_max, RESAMPLE_COUNT)
+        wx = poly_func(wy)
+        world_pts = np.stack([wx, wy], axis=1)
+        # 다시 픽셀로 변환하여 그리기
+        px_x, px_y = world_to_pixel(world_pts, H)
+        pts = np.stack([px_x, px_y], axis=1).astype(np.int32)
+        for i in range(len(pts)-1):
+            cv2.line(vis_img, tuple(pts[i]), tuple(pts[i+1]), color, 2)
+
+    # 좌/우 차선을 월드 좌표계에서 피팅하여 그리기
+    if left_mask is not None:
+        p, ymin, ymax = fit_lane_in_world(left_mask, H, degree=3)
+        draw_world_path(p, ymin, ymax, (255, 0, 0)) # Blue
+
+    if right_mask is not None:
+        p, ymin, ymax = fit_lane_in_world(right_mask, H, degree=3)
+        draw_world_path(p, ymin, ymax, (0, 255, 0)) # Green
+    
+    # 중심선 그리기
+    if len(center_world_x) > 0:
+        draw_world_path(center_world_x, center_world_y, (0, 255, 255), line_thickness=3)
+
+    return vis_img
