@@ -11,9 +11,9 @@ debug_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "Debug
 if not os.path.exists(debug_dir):
     os.makedirs(debug_dir)
     
-def main(Red_2D_array, Green_2D_array, Blue_2D_array, min_area, min_span, max_rmse, poly_degree=2):
+def main(Image_String, min_area, min_span, max_rmse, poly_degree=2):
         # 1. BGR 이미지 통합 (원본 해상도)
-        bgr_image = a2i.merge_rgb_to_bgr(Red_2D_array, Green_2D_array, Blue_2D_array)
+        bgr_image = a2i.merge_rgb_to_bgr(Image_String)
         
         # 2. YOLO 추론
         binary_mask_before_preprocessing = YOLOInference.extract_lane_binary(bgr_image)
