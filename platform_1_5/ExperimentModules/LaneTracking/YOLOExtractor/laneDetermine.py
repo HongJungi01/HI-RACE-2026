@@ -167,23 +167,11 @@ def classify_left_right(filtered_mask, tilt_threshold=20):
     mask_left = np.zeros((height, width), dtype=np.uint8)
     mask_right = np.zeros((height, width), dtype=np.uint8)
 
-    def draw_null(img):
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        text = "NULL"
-        text_size = cv2.getTextSize(text, font, 2, 5)[0]
-        text_x = (width - text_size[0]) // 2
-        text_y = (height + text_size[1]) // 2
-        cv2.putText(img, text, (text_x, text_y), font, 2, 255, 5, cv2.LINE_AA)
-        return img
-
     num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(filtered_mask, connectivity=8)
     blob_count = num_labels - 1 # 배경 제외
 
-    if blob_count == 0:
-        return draw_null(mask_left), draw_null(mask_right)
-
+    # 1. 먼저 각 마스크에 픽셀 할당
     if blob_count == 1:
-        # 뭉치가 1개인 경우 (기존 로직)
         ys, xs = np.where(labels == 1)
         bottom_x = int(np.mean(xs[ys == np.max(ys)]))
         top_x = int(np.mean(xs[ys == np.min(ys)]))
@@ -198,43 +186,41 @@ def classify_left_right(filtered_mask, tilt_threshold=20):
                 mask_left[labels == 1] = 255
             else:
                 mask_right[labels == 1] = 255
-    elif blob_count == 2:
-        # 뭉치가 2개인 경우 (중심점 x 좌표 비교)
-        c1_x = centroids[1][0]
-        c2_x = centroids[2][0]
-
-        if c1_x < c2_x:
-            mask_left[labels == 1] = 255
-            mask_right[labels == 2] = 255
-        else:
-            mask_left[labels == 2] = 255
-            mask_right[labels == 1] = 255
-    else:
-        # 뭉치가 3개 이상인 경우 (예외 처리: 중심 기준 분류)
+    elif blob_count >= 2:
+        # 뭉치가 2개 이상인 경우 중심점 기준으로 분류
         for i in range(1, num_labels):
             if centroids[i][0] < img_center_x:
                 mask_left[labels == i] = 255
             else:
                 mask_right[labels == i] = 255
 
-    if np.max(mask_left) == 0:
-        mask_left = draw_null(mask_left)
-    if np.max(mask_right) == 0:
-        mask_right = draw_null(mask_right)
+    # 2. 상태(state) 판별 (NULL 텍스트 그리기 전)
+    has_left = np.max(mask_left) > 0
+    has_right = np.max(mask_right) > 0
 
-    # 상태 판별 로직 추가
-    left_exists = np.max(mask_left) > 0 and "NULL" not in str(mask_left) # 실제 데이터가 있는지 확인
-    right_exists = np.max(mask_right) > 0 and "NULL" not in str(mask_right)
-
-    # 실제로는 draw_null 이전에 체크하는 것이 더 정확함
-    # (생략된 중간 로직에서 blob_count 등을 활용)
-    if blob_count == 0:
-        state = "none"
-    elif blob_count == 1:
-        # tilt 또는 위치에 따라 할당된 쪽이 state
-        state = "left" if np.max(mask_left) > 0 else "right"
-    else:
+    if has_left and has_right:
         state = "both"
+    elif has_left:
+        state = "left"
+    elif has_right:
+        state = "right"
+    else:
+        state = "none"
+
+    # 3. 시각화를 위한 NULL 텍스트 추가 (선택 사항)
+    def draw_null(img):
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        text = "NULL"
+        text_size = cv2.getTextSize(text, font, 2, 5)[0]
+        text_x = (width - text_size[0]) // 2
+        text_y = (height + text_size[1]) // 2
+        cv2.putText(img, text, (text_x, text_y), font, 2, 255, 5, cv2.LINE_AA)
+        return img
+
+    if not has_left:
+        mask_left = draw_null(mask_left)
+    if not has_right:
+        mask_right = draw_null(mask_right)
 
     return mask_left, mask_right, state
 
