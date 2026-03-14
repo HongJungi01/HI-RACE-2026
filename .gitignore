@@ -1,0 +1,19 @@
+.venv/
+.vscode/
+/Competition/
+__pycache__/
+*.py[cod]
+*$py.class
+코드 배포/
+SimpleModules/
+ExperimentModules/LaneTracking/YOLOExtractor/best_openvino_model/
+my_yolo_backend/
+label_env/
+runs/
+yolo26n.pt
+yolov8n-seg.pt
+yolov8x-seg.pt
+best.pt
+**/best.pt
+my_model_backend/
+ExperimentModules/LaneTracking/forTrainImages/
