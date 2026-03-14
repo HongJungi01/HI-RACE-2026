@@ -18,7 +18,7 @@ def extract_lane_binary(bgr_img):
     나머지는 0(검은색)인 바이너리 마스크 이미지를 반환합니다.
     """
     # device='0' 또는 'cuda'를 명시적으로 지정하여 GPU 추론 수행
-    results = lane_model.predict(bgr_img, imgsz=320, conf=0.4, verbose=False, device='cuda')
+    results = lane_model.predict(bgr_img, imgsz=320, conf=0.8, verbose=False, device='cuda')
     h, w = bgr_img.shape[:2]
     
     if results[0].masks is not None:
