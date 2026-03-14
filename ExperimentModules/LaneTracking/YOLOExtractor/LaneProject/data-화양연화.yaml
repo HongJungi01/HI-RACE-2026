@@ -1,6 +1,0 @@
-path: C:\Users\JungiHong\OneDrive\Hongik\HI-RACE\2026-01\ExperimentModules\LaneTracking\YOLOExtractor\LaneProject # 구글드라이브 폴더 경로
-train: images # 학습용 이미지 위치
-val: images # 검증용 이미지 위치 (데이터가 적을 땐 일단 학습용과 같이 써도 됩니다)
-
-names:
-  0: Lane

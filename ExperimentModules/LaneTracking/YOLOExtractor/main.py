@@ -27,7 +27,7 @@ def main(Red_2D_array, Green_2D_array, Blue_2D_array, min_area, min_span, max_rm
         filtered_mask = lD.filter_lane_candidates(binary_mask, min_area, min_span, max_rmse, poly_degree)
 
         # 6. 좌/우 차선 분류
-        left_mask, right_mask = lD.classify_left_right(filtered_mask)
+        left_mask, right_mask, state = lD.classify_left_right(filtered_mask)
 
         # 7. 디버그 이미지 저장
         left_lane_path = os.path.join(debug_dir, "left_lane.png")
@@ -36,13 +36,13 @@ def main(Red_2D_array, Green_2D_array, Blue_2D_array, min_area, min_span, max_rm
         cv2.imwrite(right_lane_path, right_mask)
 
         # 8. 중심선 계산 (호모그래피 기반 월드 좌표)
-        center_x, center_y = lD.calculate_center_line(left_mask, right_mask)
+        cx, cy = lD.calculate_center_line(left_mask, right_mask, state)
 
         # 9. CTE / Heading Error 계산
-        cte, heading = lD.calculate_stanley_error(center_x, center_y)
+        cte, heading = lD.calculate_stanley_error(cx, cy)
 
         # 10. 디버그 이미지 저장
-        debug_img = lD.draw_center_path_on_image(bgr_image, center_x, center_y)
+        debug_img = lD.draw_center_path_on_image(bgr_image, cx, cy)
         debug_img_path = os.path.join(debug_dir, "debug_image.png")
         cv2.imwrite(debug_img_path, debug_img)
 

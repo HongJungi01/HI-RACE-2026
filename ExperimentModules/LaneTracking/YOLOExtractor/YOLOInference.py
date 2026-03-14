@@ -12,32 +12,41 @@ lane_model = YOLO(model_path, task='segment')
 
 def extract_lane_binary(bgr_img):
     """
-    BGR 이미지를 입력받아 차선 부분만 255(흰색), 나머지는 0(검은색)인 
-    바이너리 마스크 이미지를 반환합니다.
+    BGR 이미지를 입력받아 가장 큰 차선 뭉치 2개만 255(흰색), 
+    나머지는 0(검은색)인 바이너리 마스크 이미지를 반환합니다.
     """
-    # 1. YOLO 추론 (BGR 이미지를 넣으면 내부에서 RGB로 자동 변환하여 처리함)
-    # imgsz는 학습과 동일하게 320, conf는 상황에 맞게 조절
     results = lane_model.predict(bgr_img, imgsz=320, conf=0.4, verbose=False)
-    
-    # 원본 이미지 크기
     h, w = bgr_img.shape[:2]
     
-    # 2. 결과 마스크가 있는지 확인
     if results[0].masks is not None:
-        # 모든 검출된 객체(차선들)의 마스크를 하나로 합침 (Logical OR 연산)
-        # results[0].masks.data는 [N, 80, 80] 형태 (imgsz=320인 경우 출력 해상도)
-        masks = results[0].masks.data.cpu().numpy()
-        combined_mask = np.any(masks, axis=0).astype(np.uint8)
+        # 1. 모든 검출된 마스크 가져오기
+        masks = results[0].masks.data.cpu().numpy() # [N, H_model, W_model]
         
-        # 3. 모델 출력 크기(80x80 등)를 원본 이미지 크기로 복원
+        # 2. 각 마스크의 면적(흰색 픽셀 수) 계산 및 정렬
+        # (N, 면적) 튜플 리스트 생성 후 면적 기준 내림차순 정렬
+        mask_areas = []
+        for i in range(len(masks)):
+            area = np.sum(masks[i])
+            mask_areas.append((i, area))
+        
+        mask_areas.sort(key=lambda x: x[1], reverse=True)
+        
+        # 3. 상위 2개 인덱스만 선택
+        top_indices = [idx for idx, area in mask_areas[:2]]
+        
+        # 4. 선택된 마스크들만 합치기
+        if top_indices:
+            selected_masks = masks[top_indices]
+            combined_mask = np.any(selected_masks, axis=0).astype(np.uint8)
+        else:
+            return np.zeros((h, w), dtype=np.uint8)
+        
+        # 5. 모델 출력 크기를 원본 이미지 크기로 복원 및 255 변환
         binary_output = cv2.resize(combined_mask, (w, h), interpolation=cv2.INTER_LINEAR)
-        
-        # 4. 0과 1 상태를 0과 255로 변환
         binary_output = (binary_output * 255).astype(np.uint8)
         
         return binary_output
     else:
-        # 검출된 차선이 없으면 빈 검정 이미지 반환
         return np.zeros((h, w), dtype=np.uint8)
 
 # --- 실제 사용 예시 (다른 CV 로직과의 연결) ---
