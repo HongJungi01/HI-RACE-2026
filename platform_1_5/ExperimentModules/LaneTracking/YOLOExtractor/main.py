@@ -1,5 +1,5 @@
 import array2Image as a2i
-import YOLOInference
+import YOLOInferenceNONEVINO as YOLOInference
 import laneDetermine as lD
 import cv2
 import numpy as np
@@ -29,9 +29,9 @@ def main(Image_String, min_area, min_span, max_rmse, poly_degree=2):
     binary_mask = YOLOInference.extract_lane_binary(bgr_image)
     inferece_end_time = time.time()
 
-    # 3. ROI 크롭 및 리사이즈
-    roi_img = binary_mask[79:230, :] 
-    binary_mask = cv2.resize(roi_img, (640, 310), interpolation=cv2.INTER_LINEAR)
+    # # 3. ROI 크롭 및 리사이즈
+    # roi_img = binary_mask[79:230, :] 
+    # binary_mask = cv2.resize(roi_img, (640, 310), interpolation=cv2.INTER_LINEAR)
     
     # 4. 차선 검증
     lanedetermine_start_time = time.time()
