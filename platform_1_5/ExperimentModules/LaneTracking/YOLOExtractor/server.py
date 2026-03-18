@@ -1,5 +1,7 @@
 import socket
 import struct
+import sys
+import os
 import main as main_module
 
 # --- 설정 ---
