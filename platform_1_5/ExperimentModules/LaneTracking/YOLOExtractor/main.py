@@ -1,11 +1,15 @@
 import array2Image as a2i
-import YOLOInferenceNONEVINO as YOLOInference
+import YOLOInference
 import laneDetermine as lD
+from temporal_filter import LaneTracker
 import cv2
 import numpy as np
 import os
 import time
 import base64
+
+# 프레임 간 상태를 유지하는 트래커 (모듈 레벨 인스턴스)
+tracker = LaneTracker()
 
 def encode_image_to_base64(image):
     """이미지를 JPEG 형식의 Base64 문자열로 변환"""
@@ -29,16 +33,26 @@ def main(Image_String, min_area, min_span, max_rmse, poly_degree=2):
     binary_mask = YOLOInference.extract_lane_binary(bgr_image)
     inferece_end_time = time.time()
 
-    # # 3. ROI 크롭 및 리사이즈
-    # roi_img = binary_mask[79:230, :] 
-    # binary_mask = cv2.resize(roi_img, (640, 310), interpolation=cv2.INTER_LINEAR)
-    
+    # 3. ROI 크롭 및 리사이즈
+    roi_img = binary_mask[79:230, :] 
+    binary_mask = cv2.resize(roi_img, (640, 310), interpolation=cv2.INTER_LINEAR)
+
+    # 3.5 얇은 연결 제거 (Morphological Opening)
+    open_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    binary_mask = cv2.morphologyEx(binary_mask, cv2.MORPH_OPEN, open_kernel)
+
+    # 3.6 Detection Persistence — 빈 마스크일 때 이전 유효 마스크 재사용
+    binary_mask = tracker.persist_detection(binary_mask)
+
     # 4. 차선 검증
     lanedetermine_start_time = time.time()
     filtered_mask = lD.filter_lane_candidates(binary_mask, min_area, min_span, max_rmse, poly_degree)
 
     # 5. 좌/우 차선 분류
     left_mask, right_mask, state = lD.classify_left_right(filtered_mask)
+
+    # 5.5 State Debouncing — 급격한 상태 전환 방지
+    state, left_mask, right_mask = tracker.debounce_state(state, left_mask, right_mask)
     lanedetermine_end_time = time.time()
 
     # 6. 중심선 계산
@@ -49,6 +63,9 @@ def main(Image_String, min_area, min_span, max_rmse, poly_degree=2):
     # 7. CTE / Heading Error 계산
     stanley_start_time = time.time()
     cte, heading = lD.calculate_stanley_error(cx, cy)
+
+    # 7.5 CTE/Heading EMA 스무딩
+    cte, heading = tracker.smooth_output(cte, heading)
     stanley_end_time = time.time()
 
     # 8. 디버그 이미지 생성 (그리기 연산)

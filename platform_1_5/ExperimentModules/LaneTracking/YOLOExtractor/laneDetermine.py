@@ -287,27 +287,6 @@ def calculate_center_line(left_mask, right_mask, state, H=None,
         # 피팅 실패 시 원본 반환
         return center_x.tolist(), center_y.tolist()
 
-
-def _mask_has_lane(mask):
-    """마스크에 실제 차선 데이터가 있는지 확인 (NULL 텍스트만 있는 경우 False)."""
-    if mask is None:
-        return False
-    # NULL 마스크는 draw_null로 텍스트만 그려짐 — 실제 차선은 connected component가 1개 이상이고
-    # 그 면적이 작음. 간단히 흰색 픽셀 비율로 판단.
-    white_count = np.count_nonzero(mask)
-    if white_count == 0:
-        return False
-    # NULL 텍스트는 보통 소수 픽셀. 차선은 최소 수백 픽셀.
-    # 하지만 draw_null의 결과도 수백 픽셀일 수 있으므로,
-    # classify_left_right가 draw_null을 호출했는지를 텍스트 패턴으로 구분하기 어려움.
-    # 대신 mask에 connected component 수와 모양으로 판단:
-    # draw_null 결과는 가운데에 텍스트가 있으므로 centroid가 중앙 근처.
-    # 안전하게: NULL은 classify_left_right에서만 생성되므로
-    # 여기서는 classify_left_right 호출 전의 원본 마스크를 받도록 main.py에서 조정.
-    # → 간단하게 흰색 카운트 > 0이면 True
-    return True
-
-
 def _offset_center(xs, ys, offset_m):
     """
     월드 좌표 곡선에서 수직 법선 방향으로 offset_m만큼 이동한 중심선을 계산한다.
