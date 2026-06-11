@@ -16,4 +16,41 @@ yolov8x-seg.pt
 best.pt
 **/best.pt
 my_model_backend/
-ExperimentModules/LaneTracking/forTrainImages/
+platform_1_5/ExperimentModules/LaneTracking/forTrainImages/
+platform_1_5/Modelings/
+platform_1_5/ExperimentModules/LaneTracking/StanleyFFTest/
+platform_1_5/ExperimentModules/LaneTracking/LaneExtractor/
+kernel.errors.txt
+platform_1_5/ExperimentModules/ImageExtractor/
+
+# 과제 제출물
+/Assignment/
+
+# 루트 OpenVINO 모델 폴더 (정본은 platform_1_5/Competition/YOLOExtractor 아래에 추적 중)
+/best_openvino_model*/
+
+# 주행 로그 (파이썬 스크립트는 유지)
+platform_1_2/log/*
+!platform_1_2/log/*.py
+
+# 백업 zip 아카이브
+*.zip
+
+# 데이터셋 및 생성 이미지
+platform_1_10/vision*/Images/
+platform_1_10/vision*/debug_masks/
+platform_1_10/vision*/debug_overlay/
+platform_1_10/LaneFollower/images/
+*_mask.png
+processed_*.png
+
+# 컴파일된 실행파일 (소스 .cpp는 추적)
+*.exe
+
+# 복사본/압축 해제 중복 폴더
+*복사본*
+platform_1_10/1_10_ScaleCar_HLV_enc/
+
+# 로컬 설정 및 에러 로그
+.claude/settings.local.json
+compile_errors.txt
