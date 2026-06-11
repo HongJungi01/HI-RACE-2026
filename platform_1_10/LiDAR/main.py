@@ -73,8 +73,8 @@ def track_objects(x_array, y_array, eps, min_samples, iterations):
                     0이면 트래커 리셋 (새 세션 시작)
 
     Returns:
-        np.ndarray: (5, N) — [[id], [x], [y], [vx], [vy]]
-                    추적 물체가 없으면 (5, 0) 빈 배열
+        np.ndarray: (N, 4) — [[x1, y1, vx1, vy1], [x2, y2, vx2, vy2], ...]
+                    추적 물체가 없으면 (0, 4) 빈 배열
     """
     # ── 루프 카운터 == 0 → 새 세션, 트래커 리셋 ──
     iterations = int(iterations)
@@ -93,17 +93,17 @@ def track_objects(x_array, y_array, eps, min_samples, iterations):
     # ── 추적 + 속도 추정 (dt 고정 0.1s) ──
     results = _tracker.update(centroids, cluster_points_list, _DT)
 
-    # ── (5, N) 배열로 패킹 ──
+    # ── (N, 4) 배열로 패킹 ──
     if not results:
-        return np.zeros((5, 0), dtype=np.float64)
+        return np.zeros((0, 4), dtype=np.float64)
 
-    ids = [r['id'] for r in results]
-    xs  = [r['centroid'][0] for r in results]
-    ys  = [r['centroid'][1] for r in results]
-    vxs = [r['velocity'][0] for r in results]
-    vys = [r['velocity'][1] for r in results]
+    # 각 결과에서 [x, y, vx, vy]만 추출하여 리스트 생성
+    data = [
+        [r['centroid'][0], r['centroid'][1], r['velocity'][0], r['velocity'][1]]
+        for r in results
+    ]
 
-    return np.array([ids, xs, ys, vxs, vys], dtype=np.float64)
+    return np.array(data, dtype=np.float64)
 
 
 def reset_tracker():

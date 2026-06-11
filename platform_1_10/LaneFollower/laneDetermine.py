@@ -7,26 +7,23 @@ if not hasattr(np, 'trapz') and hasattr(np, 'trapezoid'):
 
 
 # ============================================================
-# 캘리브레이션 설정 (640x310 해상도 기준)
+# 캘리브레이션 설정 (640x300 해상도 기준)
 # ============================================================
 STANDARD_LANE_WIDTH_M = 1.5  # 차선 폭 (m)
 RESAMPLE_COUNT = 50          # 샘플링 포인트 수
 
-# 캘리브레이션 포인트: (pixel_x, pixel_y) -> (world_x, world_y) [단위: 미터]
 _CALIB_PIXEL_PTS = np.array([
-    [448, 130],
-    [426, 100],
-    [193, 129],
-    [320, 101],
-    [166, 172],
+    [176, 246],  # 좌측 하단 모서리
+    [469, 237],  # 우측 하단 모서리
+    [434, 149],  # 우측 상단 모서리
+    [218, 155],  # 좌측 상단 모서리
 ], dtype=np.float32)
 
 _CALIB_WORLD_PTS = np.array([
-    [1.5, 0.5],
-    [1.5, 0.0],
-    [0.0, 0.5],
-    [0.75, 0.0],
-    [0.0, 1.0],
+    [0.0, 0.0],     # 좌측 하단 (원점)
+    [0.358, 0.0],   # 우측 하단 (가로 358mm)
+    [0.358, 0.252], # 우측 상단 (가로 358mm, 세로 252mm)
+    [0.0, 0.252],   # 좌측 상단 (세로 252mm)
 ], dtype=np.float32)
 
 
@@ -66,13 +63,13 @@ def world_to_pixel(world_points, H):
 # 모듈 로드 시 호모그래피 행렬을 한 번만 계산
 _H_raw = build_homography()
 
-# 차량 앞축중심점 (320, 310) 픽셀을 월드 (0, 0)으로 평행이동
-_origin_px = np.array([[320, 310]], dtype=np.float32)
+# 차량 앞축중심점 (320, 300) 픽셀을 월드 (0, 0)으로 평행이동
+_origin_px = np.array([[320, 300]], dtype=np.float32)
 _ox, _oy = pixel_to_world(_origin_px, _H_raw)
 _T = np.array([
-    [1, 0, -_ox[0]],
-    [0, 1, -_oy[0]],
-    [0, 0,       1]
+    [1,  0, -_ox[0]],
+    [0,  1, -_oy[0]],
+    [0,  0,       1]
 ], dtype=np.float64)
 _H = _T @ _H_raw
 
@@ -145,7 +142,6 @@ def extract_lane_world_points(binary_mask,
                               min_area=100,
                               min_span=50,
                               max_rmse=100.0,
-                              poly_degree=2,
                               fit_degree=5,
                               resample_count=RESAMPLE_COUNT,
                               H=None):
@@ -153,26 +149,8 @@ def extract_lane_world_points(binary_mask,
     바이너리 마스크에서 차선 후보를 필터링하고, 각 차선을 다항식 피팅 후
     호모그래피로 월드 좌표 변환하여 반환한다.
 
-    1. connectedComponentsWithStats로 클러스터 분리
-    2. 각 클러스터: area → RMSE → span 필터링
-    3. centroid x 기준 오름차순 정렬 (왼쪽 → 오른쪽)
-    4. 최대 3개까지 선택
-    5. 각 차선을 fit_degree 다항식 피팅 → resample_count개 월드 좌표 샘플링
-
-    Args:
-        binary_mask:    전처리 완료된 uint8 바이너리 이미지 (0 or 255)
-        min_area:       최소 클러스터 면적 (px)
-        min_span:       최소 스팬 거리 (px)
-        max_rmse:       최대 허용 RMSE (px)
-        poly_degree:    필터링용 폴리피팅 차수
-        fit_degree:     최종 월드좌표 변환용 폴리피팅 차수
-        resample_count: 차선당 샘플링 포인트 수
-        H:              호모그래피 행렬 (None이면 모듈 기본값 사용)
-
-    Returns:
-        list[np.ndarray]: 각 원소는 shape (2, resample_count)의 np.ndarray
-                          [[world_x1, world_x2, ...], [world_y1, world_y2, ...]]
-                          centroid x 오름차순 정렬, 최대 3개. 감지 없으면 빈 리스트 [].
+    최적화: 클러스터별 np.where 1회, polyfit 1회로 통합.
+    풀사이즈 마스크 할당 없이 labels 배열에서 직접 좌표 추출.
     """
     if H is None:
         H = _H
@@ -185,51 +163,50 @@ def extract_lane_world_points(binary_mask,
     if num_labels <= 1:
         return []
 
-    # Step 2: 각 클러스터 필터링
+    # Step 2: 각 클러스터 필터링 + 피팅 (1-pass)
     candidates = []
     for i in range(1, num_labels):
-        # area 필터
         area = stats[i, cv2.CC_STAT_AREA]
         if area < min_area:
             continue
 
-        cluster_mask = np.uint8(labels == i) * 255
-
-        # RMSE 필터
-        poly_func, y_min, y_max, rmse = fit_poly_with_rmse(cluster_mask, degree=poly_degree)
-        if poly_func is None or rmse > max_rmse:
-            continue
+        # labels 배열에서 직접 좌표 추출 (풀사이즈 마스크 할당 회피)
+        ys, xs = np.where(labels == i)
 
         # span 필터
-        ys, xs = np.where(cluster_mask > 0)
         p1 = (xs[0], ys[0])
         p2 = (xs[-1], ys[-1])
         span = np.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
         if span < min_span:
             continue
 
-        centroid_x = centroids[i][0]
-        candidates.append((centroid_x, cluster_mask))
-
-    # Step 3: centroid x 기준 오름차순 정렬
-    candidates.sort(key=lambda c: c[0])
-
-    # Step 4: 최대 3개 선택
-    candidates = candidates[:3]
-
-    # Step 5: 각 차선을 피팅 → 월드 좌표 변환
-    result = []
-    for _, mask in candidates:
-        poly_func, y_min, y_max = fit_poly(mask, degree=fit_degree)
-        if poly_func is None:
+        # 단일 polyfit (fit_degree) + RMSE 계산 통합
+        try:
+            poly_coeffs = np.polyfit(ys, xs, fit_degree)
+        except Exception:
+            continue
+        poly_func = np.poly1d(poly_coeffs)
+        predicted_x = poly_func(ys)
+        rmse = np.sqrt(np.mean((predicted_x - xs) ** 2))
+        if rmse > max_rmse:
             continue
 
+        y_min, y_max = int(np.min(ys)), int(np.max(ys))
+        centroid_x = centroids[i][0]
+        candidates.append((centroid_x, poly_func, y_min, y_max))
+
+    # Step 3: centroid x 기준 오름차순 정렬, 최대 3개
+    candidates.sort(key=lambda c: c[0])
+    candidates = candidates[:3]
+
+    # Step 4: 각 차선을 월드 좌표 변환
+    result = []
+    for _, poly_func, y_min, y_max in candidates:
         wx, wy = generate_resampled_points_world(
             poly_func, y_min, y_max, resample_count, H
         )
         if wx is None:
             continue
-
-        result.append(np.array([wx, wy]))  # shape (2, resample_count)
+        result.append(np.array([wx, wy]))
 
     return result

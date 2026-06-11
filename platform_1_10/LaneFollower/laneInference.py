@@ -22,9 +22,9 @@ YW_GAP = 0.225       # 노란선 ↔ 흰선 간격 (m)
 WW_GAP = 0.45        # 흰선 ↔ 흰선 간격 (m)
 GAP_TOL = 0.10       # 간격 허용 오차 (m) — 커브 등 고려
 
-DEBOUNCE_COUNT = 3   # 코스 타입 변경에 필요한 연속 프레임 수
 PERSIST_FRAMES = 5   # 차선 미감지 시 이전 결과 유지 프레임 수
 EMA_ALPHA = 0.3      # EMA 스무딩 계수 (0=이전값 유지, 1=새값만)
+EXTEND_Y_THRESH = 0.05  # 차선 연장 판정 임계값 (m) — 이 값 이상 짧으면 연장 대상
 
 # 코스 타입
 TRACK_2LANE = "YWWY"    # 2차로 — 주행 경로 2개
@@ -38,6 +38,17 @@ TRACK_3LANE = "YWWWY"   # 3차로 — 주행 경로 3개
 def _avg_world_x(lane: np.ndarray) -> float:
     """차선 좌표 배열 (2, N)에서 world_x의 평균값 반환."""
     return float(np.mean(lane[0]))
+
+
+def _resample_lane(xs: np.ndarray, ys: np.ndarray, count: int = 50
+                   ) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    (xs, ys) 곡선을 world_y 기준 균일 간격 count개 포인트로 재샘플링.
+    world_y가 오름차순(가까운→먼 쪽) 정렬되어 있다고 가정.
+    """
+    ys_uniform = np.linspace(ys[0], ys[-1], count)
+    xs_resampled = np.interp(ys_uniform, ys, xs)
+    return xs_resampled, ys_uniform
 
 
 def _offset_lane(xs: np.ndarray, ys: np.ndarray, offset_m: float
@@ -60,8 +71,8 @@ def _offset_lane(xs: np.ndarray, ys: np.ndarray, offset_m: float
     magnitude[magnitude == 0] = 1e-8
 
     # 접선에 수직인 법선 벡터 (오른쪽 방향이 +)
-    nx = -dy / magnitude
-    ny = dx / magnitude
+    nx =  dy / magnitude
+    ny = -dx / magnitude
 
     new_xs = xs + nx * offset_m
     new_ys = ys + ny * offset_m
@@ -116,66 +127,51 @@ class ObservedLine:
 
 class LaneInferenceEngine:
     """
-    프레임 간 상태를 유지하며 비가시 차선을 추론하고,
-    모든 주행 가능 경로(흰색 차선)의 월드 좌표를 반환하는 엔진.
+    상태 유지 없이(Stateless), 입력된 차선의 간격 정보를 바탕으로 
+    비가시 차선을 추론하여 모든 주행 경로(흰색 차선)를 반환하는 엔진.
     """
 
     def __init__(self):
-        # Temporal state
-        self.confirmed_track_type: Optional[str] = None   # TRACK_2LANE / TRACK_3LANE
-        self._candidate_type: Optional[str] = None        # 디바운싱 대기 중인 타입
-        self._debounce_counter: int = 0                    # 연속 동일 관측 횟수
+        # 상태를 저장하지 않음
+        pass
 
-        # Detection persistence
-        self._last_result: Optional[List[np.ndarray]] = None
-        self._no_detection_count: int = 0
-
-        # EMA 스무딩 상태
-        self._ema_lanes: Optional[List[np.ndarray]] = None
-
-    # ────────────────────────────────────────────
-    # 메인 인터페이스
-    # ────────────────────────────────────────────
     def infer(self,
               yellow_lanes: List[np.ndarray],
               white_lanes: List[np.ndarray]
               ) -> List[np.ndarray]:
         """
-        감지된 노란/흰색 차선으로부터 모든 주행 가능 경로(흰색 차선)를 추론.
-
-        Args:
-            yellow_lanes: 노란색 차선 리스트, 각 원소 shape (2, N), 좌→우 정렬
-            white_lanes:  흰색 차선 리스트, 각 원소 shape (2, N), 좌→우 정렬
-
-        Returns:
-            list[np.ndarray]: 모든 주행 가능 경로(흰색 차선), 각 (2, N), 좌→우 정렬.
-                              2차로면 2개, 3차로면 3개.
+        입력된 차선들로 즉시 추론 수행 (프레임 독립적)
         """
         # Step 1: 통합 & 정렬
         observed = self._build_observed_lines(yellow_lanes, white_lanes)
 
-        # 감지 없음 → persistence
+        # 감지 없으면 즉시 빈 리스트 반환
         if len(observed) == 0:
-            return self._handle_no_detection()
+            return []
 
-        self._no_detection_count = 0
-
-        # Step 2: 패턴 분류 & 코스 타입 판별
+        # Step 2: 패턴 및 간격 분석
         pattern = "".join(line.color for line in observed)
         gaps = self._measure_gaps(observed)
-        track_type = self._determine_track_type(pattern, gaps, observed)
+        
+        # 이전 상태(self.confirmed_track_type)를 참조하지 않고 패턴만으로 판별
+        # 판별 안 될 경우 보수적으로 2차로(TRACK_2LANE) 가정
+        track_type = self._classify_pattern(pattern, gaps) or TRACK_2LANE
 
-        # Step 3: 누락 차선 생성
+        # Step 3: 누락 차선 생성 (Offset 기반)
         all_white_lanes = self._generate_all_white_lanes(
             observed, track_type, pattern, gaps
         )
 
-        # Step 4: 정렬 & 스무딩
-        all_white_lanes.sort(key=lambda lane: _avg_world_x(lane))
-        all_white_lanes = self._apply_ema(all_white_lanes)
+        # Step 4: 끊긴 차선 연장 (가장 긴 차선 기준)
+        yellow_observed = [l.coords for l in observed if l.color == 'Y']
+        all_white_lanes = self._extend_broken_lanes(all_white_lanes, yellow_observed)
 
-        self._last_result = all_white_lanes
+        # Step 5: 최종 정렬 (EMA 스무딩 제거)
+        all_white_lanes.sort(key=lambda lane: _avg_world_x(lane))
+
         return all_white_lanes
+
+    # 이하 _handle_no_detection, _apply_ema 함수는 삭제
 
     # ────────────────────────────────────────────
     # Step 1: 관측 데이터 구성
@@ -212,22 +208,17 @@ class LaneInferenceEngine:
                               ) -> str:
         """
         관측 패턴과 간격으로 코스 타입을 판별.
-        확정 가능하면 바로 확정, 모호하면 temporal state 사용.
+        확정 가능하면 즉시 확정, 모호하면 기존 상태 유지.
         """
         detected_type = self._classify_pattern(pattern, gaps)
 
         if detected_type is not None:
-            # 확정 패턴 → 디바운싱
-            self._update_debounce(detected_type)
-        else:
-            # 모호 → 기존 상태 유지, 없으면 보수적 2차로
-            pass
+            self.confirmed_track_type = detected_type
+            return detected_type
 
         if self.confirmed_track_type is not None:
             return self.confirmed_track_type
-        else:
-            # 아직 한번도 확정 안된 경우 → 보수적 2차로
-            return TRACK_2LANE
+        return TRACK_2LANE
 
     def _classify_pattern(self, pattern: str, gaps: List[float]) -> Optional[str]:
         """
@@ -246,8 +237,8 @@ class LaneInferenceEngine:
 
         # ── 확정 케이스 ──
 
-        # WWW: 흰선 3개, 노란선 없음 → 무조건 3차로
-        if pattern == "WWW":
+        # W가 3개 이상이면 패턴 순서 무관하게 3차로 확정
+        if n_w >= 3:
             return TRACK_3LANE
 
         # YWWY: 4개 전부 보임 → 2차로
@@ -310,17 +301,6 @@ class LaneInferenceEngine:
 
         # 그 외
         return None
-
-    def _update_debounce(self, detected_type: str):
-        """디바운싱 로직: 연속 N프레임 동일 타입이면 confirmed 변경."""
-        if detected_type == self._candidate_type:
-            self._debounce_counter += 1
-        else:
-            self._candidate_type = detected_type
-            self._debounce_counter = 1
-
-        if self._debounce_counter >= DEBOUNCE_COUNT:
-            self.confirmed_track_type = detected_type
 
     # ────────────────────────────────────────────
     # Step 3: 누락 차선 생성
@@ -600,47 +580,44 @@ class LaneInferenceEngine:
         return inferred
 
     # ────────────────────────────────────────────
-    # Temporal 안전장치
+    # Step 4: 끊긴 차선 연장
     # ────────────────────────────────────────────
-    def _handle_no_detection(self) -> List[np.ndarray]:
-        """차선 미감지 시 이전 결과를 일정 프레임 동안 유지."""
-        self._no_detection_count += 1
-        if (self._last_result is not None
-                and self._no_detection_count <= PERSIST_FRAMES):
-            return self._last_result
-        return []
-
-    def _apply_ema(self, lanes: List[np.ndarray]) -> List[np.ndarray]:
+    def _extend_broken_lanes(self,
+                             white_lanes: List[np.ndarray],
+                             yellow_lanes: List[np.ndarray]
+                             ) -> List[np.ndarray]:
         """
-        EMA 스무딩: 이전 프레임과 동일 개수의 차선이면
-        각 차선의 world_x에 지수이동평균 적용하여 떨림 감소.
+        가장 긴 차선(world_y 범위가 가장 넓은 차선)의 y 범위를 기준으로,
+        다른 차선들이 짧으면 world_y 범위를 동일하게 연장한다.
         """
-        if self._ema_lanes is None or len(self._ema_lanes) != len(lanes):
-            # 차선 개수 변경 → EMA 리셋
-            self._ema_lanes = [lane.copy() for lane in lanes]
-            return lanes
+        if not white_lanes:
+            return white_lanes
 
-        smoothed = []
-        for prev, curr in zip(self._ema_lanes, lanes):
-            if prev.shape == curr.shape:
-                new = curr.copy()
-                # world_x (row 0)만 스무딩 — world_y는 forward 방향이라 변동이 적음
-                new[0] = EMA_ALPHA * curr[0] + (1 - EMA_ALPHA) * prev[0]
-                smoothed.append(new)
+        # 모든 차선(white + yellow) 중 가장 넓은 y 범위 결정
+        all_lanes = white_lanes + yellow_lanes
+        y_min = min(float(np.min(l[1])) for l in all_lanes)
+        y_max = max(float(np.max(l[1])) for l in all_lanes)
+        y_span = y_max - y_min
+
+        if y_span < EXTEND_Y_THRESH:
+            return white_lanes
+
+        extended = []
+        for lane in white_lanes:
+            lane_y_min = float(np.min(lane[1]))
+            lane_y_max = float(np.max(lane[1]))
+
+            needs_extend = (lane_y_min - y_min > EXTEND_Y_THRESH or
+                            y_max - lane_y_max > EXTEND_Y_THRESH)
+
+            if needs_extend:
+                n = lane.shape[1]
+                xs_new, ys_new = _resample_lane(lane[0], lane[1], n)
+                # np.interp으로 범위 밖은 자동으로 가장자리 값으로 외삽
+                ys_uniform = np.linspace(y_min, y_max, n)
+                xs_extended = np.interp(ys_uniform, ys_new, xs_new)
+                extended.append(_make_lane_array(xs_extended, ys_uniform))
             else:
-                smoothed.append(curr.copy())
+                extended.append(lane)
 
-        self._ema_lanes = [s.copy() for s in smoothed]
-        return smoothed
-
-    # ────────────────────────────────────────────
-    # 상태 리셋
-    # ────────────────────────────────────────────
-    def reset(self):
-        """엔진 상태 초기화."""
-        self.confirmed_track_type = None
-        self._candidate_type = None
-        self._debounce_counter = 0
-        self._last_result = None
-        self._no_detection_count = 0
-        self._ema_lanes = None
+        return extended
