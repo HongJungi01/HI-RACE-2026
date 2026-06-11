@@ -2,11 +2,13 @@ import socket
 import struct
 import sys
 import os
-import main as main_module
 
+import main as main_module
+ 
 # --- 설정 ---
 SERVER_ADDR = ('0.0.0.0', 5555)
 MAX_IMG_SIZE = 20 * 1024 * 1024  # 20MB 제한
+
 
 def recvall(sock, n):
     """정해진 바이트만큼 데이터를 수신"""

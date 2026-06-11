@@ -1,7 +1,7 @@
-description: Ultralytics YOLOv8n-seg model trained on C:\Users\JungiHong\OneDrive\Hongik\HI-RACE\2026-01\ExperimentModules\LaneTracking\YOLOExtractor\LaneProject\data.yaml
+description: Ultralytics YOLOv8n-seg model trained on /workspace/train_project/data.yaml
 author: Ultralytics
-date: '2026-03-14T14:27:25.531624'
-version: 8.4.21
+date: '2026-03-23T15:37:44.153047'
+version: 8.4.24
 license: AGPL-3.0 License (https://ultralytics.com/license)
 docs: https://docs.ultralytics.com
 stride: 32
@@ -11,7 +11,7 @@ imgsz:
 - 320
 - 320
 names:
-  0: Lane
+  0: lane
 args:
   batch: 1
   fraction: 1.0

@@ -15,7 +15,7 @@ def extract_lane_binary(bgr_img):
     BGR 이미지를 입력받아 가장 큰 차선 뭉치 2개만 255(흰색), 
     나머지는 0(검은색)인 바이너리 마스크 이미지를 반환합니다.
     """
-    results = lane_model.predict(bgr_img, imgsz=320, conf=0.4, verbose=False)
+    results = lane_model.predict(bgr_img, imgsz=320, conf=0.5, verbose=False)
     h, w = bgr_img.shape[:2]
     
     if results[0].masks is not None:

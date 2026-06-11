@@ -121,12 +121,20 @@ def generate_resampled_points_world(poly_func, y_min, y_max, count, H=None):
 
 def filter_lane_candidates(binary_image, min_area=100, min_span=50, max_rmse=10.0, poly_degree=2):
     """
-    바이너리 이미지에서 조건을 만족하는 뭉치들만 남겨놓은 바이너리 이미지를 반환합니다.
+    바이너리 이미지에서 조건을 만족하는 뭉치들을 필터링한 후,
+    최하단 x좌표를 기준으로 좌/우 각각 중앙(x=320)에 가장 가까운 뭉치 최대 2개만 남깁니다.
     """
     height, width = binary_image.shape
+    center_x = width // 2  # 640 해상도 기준 320
+    
     num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(binary_image, connectivity=8)
 
-    filtered_mask = np.zeros_like(binary_image)
+    # 좌/우 최적의 뭉치를 추적하기 위한 변수
+    best_left_label = -1
+    best_left_dist = float('inf')
+    
+    best_right_label = -1
+    best_right_dist = float('inf')
 
     for i in range(1, num_labels):
         area = stats[i, cv2.CC_STAT_AREA]
@@ -144,10 +152,36 @@ def filter_lane_candidates(binary_image, min_area=100, min_span=50, max_rmse=10.
         p2 = (xs[-1], ys[-1])
         span = np.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
 
+        # 1차 필터링 (스팬 길이, 곡선 피팅 에러)
         if span < min_span or rmse > max_rmse:
             continue
             
-        filtered_mask[labels == i] = 255
+        # --- 추가된 로직: 뭉치의 최하단 x좌표 구하기 ---
+        # y좌표가 가장 큰 값(가장 아래쪽)을 찾고, 그 때의 x좌표들의 평균을 구함
+        bottom_y = np.max(ys)
+        bottom_x = int(np.mean(xs[ys == bottom_y]))
+        
+        # 중앙값(320)과의 거리 계산
+        dist_to_center = abs(bottom_x - center_x)
+
+        # 2차 필터링: 좌/우 구분 및 중앙에 가장 가까운 뭉치 갱신
+        if bottom_x < center_x:
+            # 왼쪽 차선 후보
+            if dist_to_center < best_left_dist:
+                best_left_dist = dist_to_center
+                best_left_label = i
+        else:
+            # 오른쪽 차선 후보
+            if dist_to_center < best_right_dist:
+                best_right_dist = dist_to_center
+                best_right_label = i
+
+    # 최종 마스크 생성 (선택된 라벨만 255로 칠함)
+    filtered_mask = np.zeros_like(binary_image)
+    if best_left_label != -1:
+        filtered_mask[labels == best_left_label] = 255
+    if best_right_label != -1:
+        filtered_mask[labels == best_right_label] = 255
 
     return filtered_mask
 
