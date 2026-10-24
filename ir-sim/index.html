@@ -1,0 +1,2291 @@
+<meta charset="utf-8">
+<title>IR 라인트레이서 시뮬레이터</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap">
+<style>
+/* Layout: 상단 탭 → 탭 1은 좌측 차량 탑뷰(실척 Mega + 부품 + 배선) + 우측 부품 팔레트·속성·검증, 탭 2는 펌웨어 실행. 좁은 화면은 세로로 쌓음 */
+:root {
+  --car1: #e5484d; --car2: #2563eb; --car3: #d97706; --car4: #7c3aed;
+  --bg: #eef0ec; --panel: #ffffff; --field: #f7f8f5; --grid: #dfe3dc; --grid-major: #c3cabf;
+  --fg: #1d2420; --muted: #66706a; --line: #d4d9d1; --accent: #1f7a5a; --car: #1d2420; --front: #c2410c;
+  --pcb: #3b6d11; --pcb-edge: #27500a; --pcb11: #185fa5; --pcb11-edge: #0c447c; --pad: #2c2c2a; --gold: #d98a16; --beam: rgba(37,99,235,.12); --beam-edge: rgba(37,99,235,.5); --us: #2563eb;
+  --mega: #1b6f8f; --mega-edge: #0e4a61; --header: #1d2420; --part: #8a6f4d; --part-edge: #5c4a33;
+  --w-ir: #2f9e44; --w-us: #2563eb; --w-act: #c2410c; --w-rc: #b7791f; --w-vcc: #d92d20; --w-gnd: #1d2420;
+  --err: #b42318; --err-bg: #fdecea; --warn: #9a6700; --warn-bg: #fff4d6; --ok: #1f7a5a; --ok-bg: #e5f3ec; --info-bg: #eef1f4;
+  --font-ui: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "Consolas", monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121614; --panel: #1a1f1c; --field: #161a18; --grid: #232a26; --grid-major: #34403a;
+  --fg: #e3e8e4; --muted: #8e9993; --line: #2c3530; --accent: #4cc39a; --car: #e3e8e4; --front: #fb923c;
+  --pcb: #3f7a1c; --pcb-edge: #6aa53a; --pcb11: #1f6fbf; --pcb11-edge: #6fb0ef; --pad: #0d0f0e; --gold: #f0a63a; --beam: rgba(96,165,250,.13); --beam-edge: rgba(96,165,250,.55); --us: #60a5fa;
+  --mega: #1f7fa3; --mega-edge: #5fb8d8; --header: #0b0d0c; --part: #9c815c; --part-edge: #d1b48a;
+  --w-ir: #5bd27a; --w-us: #6aa8ff; --w-act: #ff9a57; --w-rc: #f2c14e; --w-vcc: #ff6b5e; --w-gnd: #c9d1cc;
+  --car1: #ff6b6b; --car2: #6aa8ff; --car3: #f2a93b; --car4: #b48cff; --err: #ff8a80; --err-bg: #3a1d1b; --warn: #f2c14e; --warn-bg: #352c14; --ok: #4cc39a; --ok-bg: #16302a; --info-bg: #20262a; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #121614; --panel: #1a1f1c; --field: #161a18; --grid: #232a26; --grid-major: #34403a;
+  --fg: #e3e8e4; --muted: #8e9993; --line: #2c3530; --accent: #4cc39a; --car: #e3e8e4; --front: #fb923c;
+  --pcb: #3f7a1c; --pcb-edge: #6aa53a; --pcb11: #1f6fbf; --pcb11-edge: #6fb0ef; --pad: #0d0f0e; --gold: #f0a63a; --beam: rgba(96,165,250,.13); --beam-edge: rgba(96,165,250,.55); --us: #60a5fa;
+  --mega: #1f7fa3; --mega-edge: #5fb8d8; --header: #0b0d0c; --part: #9c815c; --part-edge: #d1b48a;
+  --w-ir: #5bd27a; --w-us: #6aa8ff; --w-act: #ff9a57; --w-rc: #f2c14e; --w-vcc: #ff6b5e; --w-gnd: #c9d1cc;
+  --car1: #ff6b6b; --car2: #6aa8ff; --car3: #f2a93b; --car4: #b48cff; --err: #ff8a80; --err-bg: #3a1d1b; --warn: #f2c14e; --warn-bg: #352c14; --ok: #4cc39a; --ok-bg: #16302a; --info-bg: #20262a; color-scheme: dark }
+
+html, body { min-height: 100%; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-ui); font-size: 14px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 14px 32px; }
+.top { max-width: 1400px; margin: 0 auto 12px; display: flex; gap: 10px 20px; align-items: center; flex-wrap: wrap; }
+.top h1 { font-size: 16px; font-weight: 600; margin: 0; text-wrap: balance; }
+.tabs { display: flex; gap: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px; }
+.tabs button { border: 0; background: transparent; padding: 6px 14px; }
+.tabs button[aria-selected="true"] { background: var(--accent); color: var(--panel); }
+.frame-note { font-family: var(--font-num); font-size: 11.5px; color: var(--muted); }
+
+.wrap { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px; max-width: 1400px; margin: 0 auto; align-items: start; }
+@media (max-width: 960px) { .wrap { grid-template-columns: minmax(0, 1fr); } .stage { position: static !important; } }
+.stage { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px; }
+.stage-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; padding: 0 2px 8px; font-size: 12px; color: var(--muted); }
+.stage-head b { color: var(--fg); font-weight: 600; font-size: 13px; }
+.canvas-box { position: relative; }
+canvas#cv { display: block; width: 100%; height: clamp(380px, calc(100dvh - 150px), 1100px); background: var(--field); border-radius: 3px; touch-action: none; cursor: default; }
+canvas#cv.drop { outline: 2px dashed var(--accent); outline-offset: -2px; }
+.tip { position: absolute; pointer-events: none; font-family: var(--font-num); font-size: 11.5px; background: var(--fg); color: var(--panel); padding: 2px 6px; border-radius: 3px; white-space: nowrap; transform: translate(10px, -130%); }
+.hintbar { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 8px 2px 0; font-size: 12px; color: var(--muted); }
+.hintbar .wiring { color: var(--accent); font-weight: 500; }
+kbd { font-family: var(--font-num); font-size: 11px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3px; padding: 0 4px; background: var(--field); }
+
+.panel { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.card-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.card-h h2 { font-size: 13.5px; font-weight: 600; margin: 0; }
+.label { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+.sub { font-size: 12px; color: var(--muted); margin: 0; line-height: 1.5; }
+code { font-family: var(--font-num); font-size: .92em; }
+.fld { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 8px; }
+.fld.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.fld label { display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; color: var(--muted); }
+input[type=number], select, textarea { font-family: var(--font-num); font-size: 12.5px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--field); color: var(--fg); width: 100%; box-sizing: border-box; min-width: 0; }
+button { font: inherit; font-size: 12.5px; padding: 5px 10px; border-radius: 4px; cursor: pointer; border: 1px solid var(--line); background: var(--field); color: var(--fg); }
+button:hover { border-color: var(--accent); }
+button.on { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+button.danger:hover { border-color: var(--err); color: var(--err); }
+button:disabled { opacity: .45; cursor: default; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, .part:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.filebtn { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 4px; padding: 5px 10px; background: var(--field); font-size: 12.5px; cursor: pointer; }
+
+/* 부품 팔레트 */
+.parts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.part { display: flex; flex-direction: column; gap: 2px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 5px; background: var(--field); cursor: grab; user-select: none; touch-action: none; min-width: 0; }
+.part:hover { border-color: var(--accent); }
+.part b { font-size: 12.5px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.part b i { width: 9px; height: 9px; border-radius: 2px; flex: none; }
+.part span { font-size: 11px; color: var(--muted); font-family: var(--font-num); }
+.part.used { cursor: default; opacity: .5; }
+.part.used:hover { border-color: var(--line); }
+.ghost { position: fixed; z-index: 50; pointer-events: none; padding: 5px 9px; border-radius: 4px; background: var(--accent); color: var(--panel); font-size: 12px; font-weight: 600; transform: translate(-50%, -120%); }
+
+table.ch { border-collapse: collapse; width: 100%; font-size: 12px; }
+table.ch th { text-align: left; font-weight: 500; color: var(--muted); font-size: 11px; padding: 3px 4px; border-bottom: 1px solid var(--line); }
+table.ch td { padding: 3px 4px; border-bottom: 1px solid var(--line); font-family: var(--font-num); font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.ch td.n { color: var(--muted); }
+table.ch td.st-error { color: var(--err); }
+table.ch td.st-warn { color: var(--warn); }
+table.ch button { padding: 0 6px; font-size: 11.5px; line-height: 18px; }
+.tbl-wrap { overflow-x: auto; }
+
+.issues { display: flex; flex-direction: column; gap: 5px; margin: 0; padding: 0; list-style: none; max-height: 300px; overflow: auto; }
+.issues li { display: grid; grid-template-columns: 38px 1fr; gap: 8px; font-size: 12.5px; line-height: 1.45; align-items: start; }
+.chip { font-size: 10.5px; font-weight: 600; text-align: center; border-radius: 3px; padding: 1px 0; }
+.chip.error { background: var(--err-bg); color: var(--err); }
+.chip.warn { background: var(--warn-bg); color: var(--warn); }
+.chip.info { background: var(--info-bg); color: var(--muted); }
+.chip.ok { background: var(--ok-bg); color: var(--ok); }
+.summary { display: flex; gap: 6px; flex-wrap: wrap; }
+.summary .chip { padding: 2px 8px; }
+.pinmap { display: grid; grid-template-columns: repeat(18, minmax(0, 1fr)); gap: 2px; }
+.pinmap div { font-family: var(--font-num); font-size: 9.5px; text-align: center; padding: 3px 0; border-radius: 2px; background: var(--field); color: var(--muted); border: 1px solid transparent; }
+.pinmap div.u-ir { background: var(--w-ir); color: #fff; }
+.pinmap div.u-us { background: var(--w-us); color: #fff; }
+.pinmap div.u-act { background: var(--w-act); color: #fff; }
+.pinmap div.u-rc { background: var(--w-rc); color: #1d2420; }
+.pinmap div.bad { border-color: var(--err); box-shadow: inset 0 0 0 1px var(--err); }
+.legend { display: flex; gap: 10px; flex-wrap: wrap; font-size: 11.5px; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+textarea { min-height: 160px; resize: vertical; line-height: 1.4; }
+.msg { font-size: 12px; color: var(--muted); min-height: 1em; margin: 0; }
+
+/* 탭 2: 시뮬레이션 — 보드(왼쪽 위) · 차량 패널(오른쪽) · 하단 독(왼쪽 아래) */
+.sim { max-width: 1500px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) 340px; grid-template-areas: "board panel" "dock panel"; gap: 12px 16px; align-items: start; }
+@media (max-width: 960px) { .sim { grid-template-columns: minmax(0, 1fr); grid-template-areas: "board" "panel" "dock"; } }
+.board { grid-area: board; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px; }
+.sim-panel { grid-area: panel; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); }
+@media (max-width: 960px) { .sim-panel { position: static; } }
+.dock { grid-area: dock; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px 10px; }
+.dock-h { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; }
+.dock-h h2 { margin: 0; font-size: 13.5px; }
+.dock-body { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 10px; align-items: start; }
+.dock-body[hidden] { display: none !important; }
+@media (max-width: 760px) { .dock-body { grid-template-columns: minmax(0, 1fr); } }
+.dock-list { display: flex; flex-direction: column; gap: 6px; }
+.carrow { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; grid-template-areas: "dot nm st" "meta meta meta" "ctl ctl ctl"; gap: 4px 8px; align-items: center; padding: 7px 8px 7px 10px; border: 1px solid var(--line); border-left: 4px solid var(--cc); border-radius: 5px; background: var(--field); cursor: pointer; }
+.carrow.sel { border-color: var(--cc); box-shadow: 0 0 0 1px var(--cc); background: var(--panel); }
+.carrow .dot { grid-area: dot; } .carrow .nm { grid-area: nm; } .carrow .status { grid-area: st; }
+.dot { width: 12px; height: 12px; border-radius: 50%; background: var(--cc); flex: none; }
+.carrow .nm { font-weight: 600; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.carrow .meta { grid-area: meta; font-size: 11.5px; color: var(--muted); display: flex; gap: 8px; flex-wrap: wrap; }
+.carrow .meta .dirty { color: var(--warn); }
+.carrow .meta .bad { color: var(--err); }
+.carrow .ctl { grid-area: ctl; display: flex; gap: 4px; }
+.carrow .ctl button { padding: 3px 8px; min-width: 32px; }
+.carrow .ctl button.eye.on { background: var(--cc); border-color: var(--cc); color: #fff; }
+.dock-detail { min-width: 0; border: 1px solid var(--line); border-top: 4px solid var(--cc, var(--line)); border-radius: 5px; padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 8px; }
+.dd-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dd-head b { font-size: 14px; }
+.dd-tabs { display: flex; gap: 4px; }
+.dd-tabs [role=tab] { padding: 4px 12px; }
+.dd-tabs [role=tab][aria-selected="true"] { background: var(--cc); border-color: var(--cc); color: #fff; }
+.badge { display: inline-block; min-width: 16px; padding: 0 5px; border-radius: 8px; background: var(--cc); color: #fff; font-size: 10.5px; line-height: 16px; text-align: center; font-family: var(--font-num); }
+[aria-selected="true"] .badge { background: #fff; color: var(--cc); }
+.dd-tools { gap: 6px; flex-wrap: wrap; align-items: center; }
+.copy-menu { display: flex; gap: 6px; flex-wrap: wrap; padding: 6px; border: 1px dashed var(--line); border-radius: 4px; }
+.copy-menu button { display: inline-flex; align-items: center; gap: 6px; }
+#dpCode, #dpSerial { display: flex; flex-direction: column; gap: 6px; }
+#dpCode[hidden], #dpSerial[hidden] { display: none !important; }
+.toolbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 0 2px 8px; }
+.tb-field { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.tb-field select { width: auto; max-width: 240px; }
+.tb-sep { width: 1px; height: 20px; background: var(--line); margin: 0 4px; }
+.grow { flex: 1; }
+canvas#simCv { display: block; width: 100%; height: clamp(360px, calc(100dvh - 380px), 900px); background: var(--field); border-radius: 3px; touch-action: none; }
+.board-msg { position: absolute; inset: 0; margin: auto; height: fit-content; width: fit-content; max-width: 80%; text-align: center; font-size: 13px; color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; }
+.status { font-family: var(--font-num); font-size: 11.5px; padding: 2px 8px; border-radius: 3px; background: var(--info-bg); color: var(--muted); white-space: nowrap; }
+.status.live { background: var(--ok-bg); color: var(--ok); }
+.status.warn { background: var(--warn-bg); color: var(--warn); }
+.status.err { background: var(--err-bg); color: var(--err); }
+.serial, .code-out { font-family: var(--font-num); font-size: 12px; line-height: 1.5; background: var(--field); border: 1px solid var(--line); border-radius: 4px; padding: 8px; overflow: auto; white-space: pre; margin: 0; }
+.serial { height: 240px; }
+.code-out { max-height: 160px; min-height: 2.4em; white-space: pre-wrap; }
+.code-out.err { color: var(--err); }
+#codeEditor { border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+#codeEditor textarea { width: 100%; box-sizing: border-box; height: 360px; border: 0; border-radius: 0; }
+.swatches { display: flex; gap: 6px; }
+.swatches button { width: 22px; height: 22px; padding: 0; border-radius: 50%; border: 2px solid transparent; }
+.swatches button.on { border-color: var(--fg); }
+.sel-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.edit-banner { max-width: 1400px; margin: 0 auto 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 12px; border-radius: 6px; background: var(--warn-bg); color: var(--fg); border: 1px solid var(--warn); font-size: 13px; }
+.edit-banner b { font-weight: 600; }
+/* CodeMirror 5 기본 스타일 (codemirror@5.65.16 lib/codemirror.css) */
+/* BASICS */
+
+.CodeMirror {
+  /* Set height, width, borders, and global font properties here */
+  font-family: monospace;
+  height: 300px;
+  color: black;
+  direction: ltr;
+}
+
+/* PADDING */
+
+.CodeMirror-lines {
+  padding: 4px 0; /* Vertical padding around content */
+}
+.CodeMirror pre.CodeMirror-line,
+.CodeMirror pre.CodeMirror-line-like {
+  padding: 0 4px; /* Horizontal padding of content */
+}
+
+.CodeMirror-scrollbar-filler, .CodeMirror-gutter-filler {
+  background-color: white; /* The little square between H and V scrollbars */
+}
+
+/* GUTTER */
+
+.CodeMirror-gutters {
+  border-right: 1px solid #ddd;
+  background-color: #f7f7f7;
+  white-space: nowrap;
+}
+.CodeMirror-linenumbers {}
+.CodeMirror-linenumber {
+  padding: 0 3px 0 5px;
+  min-width: 20px;
+  text-align: right;
+  color: #999;
+  white-space: nowrap;
+}
+
+.CodeMirror-guttermarker { color: black; }
+.CodeMirror-guttermarker-subtle { color: #999; }
+
+/* CURSOR */
+
+.CodeMirror-cursor {
+  border-left: 1px solid black;
+  border-right: none;
+  width: 0;
+}
+/* Shown when moving in bi-directional text */
+.CodeMirror div.CodeMirror-secondarycursor {
+  border-left: 1px solid silver;
+}
+.cm-fat-cursor .CodeMirror-cursor {
+  width: auto;
+  border: 0 !important;
+  background: #7e7;
+}
+.cm-fat-cursor div.CodeMirror-cursors {
+  z-index: 1;
+}
+.cm-fat-cursor .CodeMirror-line::selection,
+.cm-fat-cursor .CodeMirror-line > span::selection, 
+.cm-fat-cursor .CodeMirror-line > span > span::selection { background: transparent; }
+.cm-fat-cursor .CodeMirror-line::-moz-selection,
+.cm-fat-cursor .CodeMirror-line > span::-moz-selection,
+.cm-fat-cursor .CodeMirror-line > span > span::-moz-selection { background: transparent; }
+.cm-fat-cursor { caret-color: transparent; }
+@-moz-keyframes blink {
+  0% {}
+  50% { background-color: transparent; }
+  100% {}
+}
+@-webkit-keyframes blink {
+  0% {}
+  50% { background-color: transparent; }
+  100% {}
+}
+@keyframes blink {
+  0% {}
+  50% { background-color: transparent; }
+  100% {}
+}
+
+/* Can style cursor different in overwrite (non-insert) mode */
+.CodeMirror-overwrite .CodeMirror-cursor {}
+
+.cm-tab { display: inline-block; text-decoration: inherit; }
+
+.CodeMirror-rulers {
+  position: absolute;
+  left: 0; right: 0; top: -50px; bottom: 0;
+  overflow: hidden;
+}
+.CodeMirror-ruler {
+  border-left: 1px solid #ccc;
+  top: 0; bottom: 0;
+  position: absolute;
+}
+
+/* DEFAULT THEME */
+
+.cm-s-default .cm-header {color: blue;}
+.cm-s-default .cm-quote {color: #090;}
+.cm-negative {color: #d44;}
+.cm-positive {color: #292;}
+.cm-header, .cm-strong {font-weight: bold;}
+.cm-em {font-style: italic;}
+.cm-link {text-decoration: underline;}
+.cm-strikethrough {text-decoration: line-through;}
+
+.cm-s-default .cm-keyword {color: #708;}
+.cm-s-default .cm-atom {color: #219;}
+.cm-s-default .cm-number {color: #164;}
+.cm-s-default .cm-def {color: #00f;}
+.cm-s-default .cm-variable,
+.cm-s-default .cm-punctuation,
+.cm-s-default .cm-property,
+.cm-s-default .cm-operator {}
+.cm-s-default .cm-variable-2 {color: #05a;}
+.cm-s-default .cm-variable-3, .cm-s-default .cm-type {color: #085;}
+.cm-s-default .cm-comment {color: #a50;}
+.cm-s-default .cm-string {color: #a11;}
+.cm-s-default .cm-string-2 {color: #f50;}
+.cm-s-default .cm-meta {color: #555;}
+.cm-s-default .cm-qualifier {color: #555;}
+.cm-s-default .cm-builtin {color: #30a;}
+.cm-s-default .cm-bracket {color: #997;}
+.cm-s-default .cm-tag {color: #170;}
+.cm-s-default .cm-attribute {color: #00c;}
+.cm-s-default .cm-hr {color: #999;}
+.cm-s-default .cm-link {color: #00c;}
+
+.cm-s-default .cm-error {color: #f00;}
+.cm-invalidchar {color: #f00;}
+
+.CodeMirror-composing { border-bottom: 2px solid; }
+
+/* Default styles for common addons */
+
+div.CodeMirror span.CodeMirror-matchingbracket {color: #0b0;}
+div.CodeMirror span.CodeMirror-nonmatchingbracket {color: #a22;}
+.CodeMirror-matchingtag { background: rgba(255, 150, 0, .3); }
+.CodeMirror-activeline-background {background: #e8f2ff;}
+
+/* STOP */
+
+/* The rest of this file contains styles related to the mechanics of
+   the editor. You probably shouldn't touch them. */
+
+.CodeMirror {
+  position: relative;
+  overflow: hidden;
+  background: white;
+}
+
+.CodeMirror-scroll {
+  overflow: scroll !important; /* Things will break if this is overridden */
+  /* 50px is the magic margin used to hide the element's real scrollbars */
+  /* See overflow: hidden in .CodeMirror */
+  margin-bottom: -50px; margin-right: -50px;
+  padding-bottom: 50px;
+  height: 100%;
+  outline: none; /* Prevent dragging from highlighting the element */
+  position: relative;
+  z-index: 0;
+}
+.CodeMirror-sizer {
+  position: relative;
+  border-right: 50px solid transparent;
+}
+
+/* The fake, visible scrollbars. Used to force redraw during scrolling
+   before actual scrolling happens, thus preventing shaking and
+   flickering artifacts. */
+.CodeMirror-vscrollbar, .CodeMirror-hscrollbar, .CodeMirror-scrollbar-filler, .CodeMirror-gutter-filler {
+  position: absolute;
+  z-index: 6;
+  display: none;
+  outline: none;
+}
+.CodeMirror-vscrollbar {
+  right: 0; top: 0;
+  overflow-x: hidden;
+  overflow-y: scroll;
+}
+.CodeMirror-hscrollbar {
+  bottom: 0; left: 0;
+  overflow-y: hidden;
+  overflow-x: scroll;
+}
+.CodeMirror-scrollbar-filler {
+  right: 0; bottom: 0;
+}
+.CodeMirror-gutter-filler {
+  left: 0; bottom: 0;
+}
+
+.CodeMirror-gutters {
+  position: absolute; left: 0; top: 0;
+  min-height: 100%;
+  z-index: 3;
+}
+.CodeMirror-gutter {
+  white-space: normal;
+  height: 100%;
+  display: inline-block;
+  vertical-align: top;
+  margin-bottom: -50px;
+}
+.CodeMirror-gutter-wrapper {
+  position: absolute;
+  z-index: 4;
+  background: none !important;
+  border: none !important;
+}
+.CodeMirror-gutter-background {
+  position: absolute;
+  top: 0; bottom: 0;
+  z-index: 4;
+}
+.CodeMirror-gutter-elt {
+  position: absolute;
+  cursor: default;
+  z-index: 4;
+}
+.CodeMirror-gutter-wrapper ::selection { background-color: transparent }
+.CodeMirror-gutter-wrapper ::-moz-selection { background-color: transparent }
+
+.CodeMirror-lines {
+  cursor: text;
+  min-height: 1px; /* prevents collapsing before first draw */
+}
+.CodeMirror pre.CodeMirror-line,
+.CodeMirror pre.CodeMirror-line-like {
+  /* Reset some styles that the rest of the page might have set */
+  -moz-border-radius: 0; -webkit-border-radius: 0; border-radius: 0;
+  border-width: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: inherit;
+  margin: 0;
+  white-space: pre;
+  word-wrap: normal;
+  line-height: inherit;
+  color: inherit;
+  z-index: 2;
+  position: relative;
+  overflow: visible;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-variant-ligatures: contextual;
+  font-variant-ligatures: contextual;
+}
+.CodeMirror-wrap pre.CodeMirror-line,
+.CodeMirror-wrap pre.CodeMirror-line-like {
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  word-break: normal;
+}
+
+.CodeMirror-linebackground {
+  position: absolute;
+  left: 0; right: 0; top: 0; bottom: 0;
+  z-index: 0;
+}
+
+.CodeMirror-linewidget {
+  position: relative;
+  z-index: 2;
+  padding: 0.1px; /* Force widget margins to stay inside of the container */
+}
+
+.CodeMirror-widget {}
+
+.CodeMirror-rtl pre { direction: rtl; }
+
+.CodeMirror-code {
+  outline: none;
+}
+
+/* Force content-box sizing for the elements where we expect it */
+.CodeMirror-scroll,
+.CodeMirror-sizer,
+.CodeMirror-gutter,
+.CodeMirror-gutters,
+.CodeMirror-linenumber {
+  -moz-box-sizing: content-box;
+  box-sizing: content-box;
+}
+
+.CodeMirror-measure {
+  position: absolute;
+  width: 100%;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+}
+
+.CodeMirror-cursor {
+  position: absolute;
+  pointer-events: none;
+}
+.CodeMirror-measure pre { position: static; }
+
+div.CodeMirror-cursors {
+  visibility: hidden;
+  position: relative;
+  z-index: 3;
+}
+div.CodeMirror-dragcursors {
+  visibility: visible;
+}
+
+.CodeMirror-focused div.CodeMirror-cursors {
+  visibility: visible;
+}
+
+.CodeMirror-selected { background: #d9d9d9; }
+.CodeMirror-focused .CodeMirror-selected { background: #d7d4f0; }
+.CodeMirror-crosshair { cursor: crosshair; }
+.CodeMirror-line::selection, .CodeMirror-line > span::selection, .CodeMirror-line > span > span::selection { background: #d7d4f0; }
+.CodeMirror-line::-moz-selection, .CodeMirror-line > span::-moz-selection, .CodeMirror-line > span > span::-moz-selection { background: #d7d4f0; }
+
+.cm-searching {
+  background-color: #ffa;
+  background-color: rgba(255, 255, 0, .4);
+}
+
+/* Used to force a border model for a node */
+.cm-force-border { padding-right: .1px; }
+
+@media print {
+  /* Hide the cursor when printing */
+  .CodeMirror div.CodeMirror-cursors {
+    visibility: hidden;
+  }
+}
+
+/* See issue #2901 */
+.cm-tab-wrap-hack:after { content: ''; }
+
+/* Help users use markselection to safely style text background */
+span.CodeMirror-selectedtext { background: none; }
+
+.CodeMirror { height: 360px; font-family: var(--font-num); font-size: 12.5px; background: var(--field); color: var(--fg); }
+.CodeMirror-gutters { background: var(--panel); border-right: 1px solid var(--line); }
+.CodeMirror-linenumber { color: var(--muted); }
+.CodeMirror-cursor { border-left-color: var(--fg); }
+div.CodeMirror-selected, .CodeMirror-focused div.CodeMirror-selected { background: var(--info-bg); }
+.cm-s-default .cm-keyword { color: var(--accent); font-weight: 500; }
+.cm-s-default .cm-type, .cm-s-default .cm-variable-3 { color: var(--us); }
+.cm-s-default .cm-number { color: var(--front); }
+.cm-s-default .cm-string { color: var(--gold); }
+.cm-s-default .cm-comment { color: var(--muted); font-style: italic; }
+.cm-s-default .cm-meta { color: var(--front); }
+.cm-s-default .cm-def { color: var(--fg); font-weight: 600; }
+.cm-s-default .cm-variable, .cm-s-default .cm-variable-2, .cm-s-default .cm-property, .cm-s-default .cm-operator { color: var(--fg); }
+.cm-err-line { background: var(--err-bg); }
+</style>
+
+<header class="top">
+  <h1>IR 라인트레이서 시뮬레이터</h1>
+  <div class="tabs" role="tablist">
+    <button id="tabVehicle" role="tab" type="button" aria-selected="true">1 · 차량 모델</button>
+    <button id="tabSim" role="tab" type="button" aria-selected="false">2 · 시뮬레이션</button>
+  </div>
+  <span class="frame-note">차량 프레임: 원점 후륜축 중심 · x 전방 · y 좌측 · cm · yaw 반시계 +</span>
+</header>
+<div class="edit-banner" id="editBanner" hidden><span>시뮬레이션 <b id="editName"></b>의 레이아웃을 편집 중입니다. 탭 1의 원래 차량은 따로 보관돼 있습니다.</span><span class="grow"></span><button type="button" id="editDone" class="on">완료 · 차량에 적용</button><button type="button" id="editCancel">취소</button></div>
+
+<!-- ================= 탭 1 ================= -->
+<main id="pageVehicle" class="wrap">
+  <section class="stage">
+    <div class="stage-head">
+      <span><b>차량 탑뷰</b> · <span id="scaleOut"></span></span>
+      <span class="row">
+        <button id="vWires" type="button" class="on" aria-pressed="true" title="W">선 표시</button>
+        <button id="vRoute" type="button" title="꺾는 점을 다시 계산">선 자동정렬</button>
+        <button id="vStraight" type="button" title="꺾는 점 모두 제거">직선</button>
+        <button id="vFit" type="button">전체</button>
+        <button id="vMega" type="button">Mega 확대</button>
+        <button id="vOut" type="button" aria-label="축소">−</button>
+        <button id="vIn" type="button" aria-label="확대">+</button>
+      </span>
+    </div>
+    <div class="canvas-box">
+      <canvas id="cv" width="800" height="800" aria-label="차량 탑뷰, 부품 배치와 Mega 배선"></canvas>
+      <div class="tip" id="tip" hidden></div>
+    </div>
+    <div class="hintbar">
+      <span id="modeOut">부품 핀(●)을 클릭 → Mega 핀을 클릭해 연결. 빈 곳 클릭 = 꺾는 점.</span>
+      <span>부품 드래그 = 이동 · 휠 클릭 드래그 = 시점 이동 · <kbd>R</kbd>/<kbd>Shift+R</kbd> 5° 회전 · ↻ 핸들 드래그 = 회전(5° 단위) · <kbd>W</kbd> 선 표시 · <kbd>Del</kbd> 삭제 · <kbd>Esc</kbd> 취소 · 휠 = 확대</span>
+    </div>
+  </section>
+
+  <aside class="panel" id="panel">
+    <div class="card">
+      <div class="card-h"><h2>부품</h2><span class="sub">차량 위로 끌어다 놓기 (클릭 = 기본 위치)</span></div>
+      <div class="parts" id="parts"></div>
+      <div class="row"><button type="button" id="autoPins">센서 핀매핑 기본값</button><span class="sub">1/10_IR_MEGA 회로도 기준 · 배치된 센서만</span></div>
+      <p class="msg" id="autoMsg"></p>
+    </div>
+
+    <div class="card" id="cardSel">
+      <div class="card-h"><h2 id="selTitle">선택한 부품</h2><span class="row" id="selBtns"></span></div>
+      <div id="selBody"></div>
+    </div>
+
+    <div class="card" id="cardCheck">
+      <div class="card-h"><h2>메가 핀 검증</h2><div class="summary" id="sumOut"></div></div>
+      <ul class="issues" id="issues"></ul>
+      <div class="pinmap" id="pinmap" aria-label="Mega 2560 핀 사용 현황"></div>
+      <div class="legend"><span><i style="background:var(--w-ir)"></i>IR</span><span><i style="background:var(--w-us)"></i>초음파</span><span><i style="background:var(--w-act)"></i>서보·모터·엔코더</span><span><i style="border:1px solid var(--err)"></i>충돌·제약 위반</span></div>
+    </div>
+
+    <div class="card" id="cardParams">
+      <div class="card-h"><h2>차량 파라미터</h2><span class="label">실측 전 가정값</span></div>
+      <div id="paramBody" style="display:flex;flex-direction:column;gap:10px"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><h2>차량 설정 저장 · 불러오기</h2></div>
+      <div class="row">
+        <button id="ioShow" type="button">JSON 보기</button>
+        <button id="ioCopy" type="button">복사</button>
+        <label class="filebtn" for="ioFile">파일 불러오기<input id="ioFile" type="file" accept=".json,application/json" hidden></label>
+        <button id="ioApply" type="button">붙여넣은 JSON 적용</button>
+        <button id="ioReset" type="button" class="danger">기본값</button>
+      </div>
+      <textarea id="ioText" spellcheck="false" hidden aria-label="차량 설정 JSON"></textarea>
+      <p class="msg" id="ioMsg">아티팩트에서는 파일 다운로드가 막혀 있어서, JSON을 복사해 .json 파일로 저장하세요. 이 브라우저에는 자동 저장됩니다.</p>
+    </div>
+  </aside>
+</main>
+
+<!-- ================= 탭 2: 시뮬레이션 ================= -->
+<main id="pageSim" class="sim" hidden>
+  <section class="board">
+    <div class="toolbar">
+      <label class="tb-field" for="mapSel">맵 <select id="mapSel"></select></label>
+      <span class="tb-sep"></span>
+      <button id="allRun" type="button">▶ 모두 실행</button>
+      <button id="allPause" type="button">⏸ 모두 일시정지</button>
+      <button id="allStop" type="button">⏹ 모두 정지</button>
+      <label class="tb-field" for="speedSel">속도 <select id="speedSel"><option value="0.25">×0.25</option><option value="0.5">×0.5</option><option value="1" selected>×1</option><option value="2">×2</option><option value="4">×4</option></select></label>
+      <span class="grow"></span>
+      <button id="viewFit" type="button">맵 전체</button>
+    </div>
+    <div class="canvas-box">
+      <canvas id="simCv" aria-label="시뮬레이션 보드: 맵과 차량"></canvas>
+      <div class="tip" id="simTip" hidden></div>
+      <p class="board-msg" id="simMsg" hidden></p>
+    </div>
+    <div class="hintbar"><span>차량 클릭 = 선택 · 정지 상태에서 드래그 = 출발 위치 · ↻ 핸들 = 출발 방향(5°)</span><span>빈 곳 드래그 · 휠 클릭 드래그 = 시점 이동 · 휠 = 확대</span></div>
+  </section>
+
+  <aside class="panel sim-panel">
+    <div class="card">
+      <div class="card-h"><h2>차량 불러오기</h2><span class="sub" id="carCount"></span></div>
+      <div class="parts">
+        <div class="part" id="addSample" role="button" tabindex="0" style="grid-column:1/-1"><b><i style="background:var(--car1)"></i>샘플 차량</b><span>기본 차량(앞 11ch · 뒤 5ch, 회로도 배선) + P 제어 코드</span></div>
+        <div class="part" id="addFromTab1" role="button" tabindex="0"><b><i style="background:var(--accent)"></i>탭 1 차량</b><span>지금 탭 1에 있는 배치·배선 그대로</span></div>
+        <label class="part" for="addFromFile" tabindex="0"><b><i style="background:var(--muted)"></i>JSON 파일</b><span>탭 1에서 저장한 차량 설정</span><input id="addFromFile" type="file" accept=".json,application/json" hidden></label>
+      </div>
+      <p class="msg" id="addMsg">차는 최대 4대. 새 차는 맵 출발선 뒤에 순서대로 놓이고, 샘플 라인트레이서 코드가 들어갑니다.</p>
+    </div>
+    <div class="card" id="simSelCard">
+      <div class="card-h"><h2 id="sselTitle">선택한 차량</h2><span class="status" id="sselStatus"></span></div>
+      <div id="sselBody"></div>
+    </div>
+  </aside>
+
+  <section class="dock" aria-label="차량 관리">
+    <div class="dock-h">
+      <h2>차량 관리</h2><span class="sub" id="dockCount"></span>
+      <span class="grow"></span>
+      <button type="button" id="dockToggle" aria-expanded="true">접기</button>
+    </div>
+    <div class="dock-body" id="dockBody">
+      <div class="dock-list" id="dpCars" role="listbox" aria-label="맵에 올라온 차량"></div>
+      <div class="dock-detail" id="dockDetail">
+        <div class="dd-head">
+          <span class="dot" id="ddDot"></span><b id="ddName"></b><span class="status" id="ddStatus"></span>
+          <span class="grow"></span>
+          <div class="dd-tabs" role="tablist">
+            <button type="button" role="tab" id="dtCode" aria-selected="true">코드</button>
+            <button type="button" role="tab" id="dtSerial" aria-selected="false">Serial <span class="badge" id="serBadge" hidden></span></button>
+          </div>
+        </div>
+        <div id="dpCode">
+          <div class="row dd-tools">
+            <span class="sub" id="codeFor"></span>
+            <span class="grow"></span>
+            <button type="button" id="codeCompile">컴파일 확인</button>
+            <label class="filebtn" for="codeHex">.hex 불러오기<input id="codeHex" type="file" accept=".hex" hidden></label>
+            <button type="button" id="codeCopy">다른 차 코드 가져오기 ▾</button>
+            <button type="button" id="codeSample">샘플 코드 ▾</button>
+          </div>
+          <div class="copy-menu" id="copyMenu" hidden></div>
+          <div id="codeEditor"></div>
+          <pre class="code-out" id="codeOut"></pre>
+        </div>
+        <div id="dpSerial" hidden>
+          <div class="row dd-tools"><span class="sub" id="serialFor"></span><span class="grow"></span><button type="button" id="serialClear">지우기</button></div>
+          <pre class="serial" id="serialOut"></pre>
+        </div>
+        <p class="sub" id="ddEmpty" hidden>위 보드에 차를 올리면 여기서 차별 코드와 Serial을 관리합니다.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/clike/clike.min.js"></script>
+<script>
+(() => {
+const $ = id => document.getElementById(id);
+const dpr = () => window.devicePixelRatio || 1;
+const clamp = (a, lo, hi) => Math.min(hi, Math.max(lo, a));
+const D2R = Math.PI / 180, IN = 25.4;
+
+// ================= Mega 2560 핀 정보 =================
+const PIN_N = 70;                                   // D0~D53, A0~A15 = 54~69
+const pinName = n => n < 0 || n == null ? "—" : n >= 54 ? "A" + (n - 54) : "D" + n;
+const parsePin = s => { if (typeof s === "number") return s; const m = /^([AD])(\d+)$/i.exec(String(s || "").trim()); if (!m) return -1; const v = +m[2]; return m[1].toUpperCase() === "A" ? (v < 16 ? 54 + v : -1) : (v < 54 ? v : -1); };
+const PWM = new Set([2,3,4,5,6,7,8,9,10,11,12,13,44,45,46]);
+const EXTINT = { 21: "INT0", 20: "INT1", 19: "INT2", 18: "INT3", 2: "INT4", 3: "INT5" };
+const PCINT = { 53: 0, 52: 1, 51: 2, 50: 3, 10: 4, 11: 5, 12: 6, 13: 7, 0: 8, 15: 9, 14: 10 };
+for (let i = 0; i < 8; i++) PCINT[62 + i] = 16 + i;
+const PCGROUP = n => { const k = PCINT[n]; return k == null ? null : k < 8 ? "PCINT0 · Port B" : k < 16 ? "PCINT1 · Port E/J" : "PCINT2 · Port K"; };
+const SPECIAL = { 0: "RX0", 1: "TX0", 13: "LED", 14: "TX3", 15: "RX3", 16: "TX2", 17: "RX2", 18: "TX1", 19: "RX1", 20: "SDA", 21: "SCL", 50: "MISO", 51: "MOSI", 52: "SCK", 53: "SS" };
+const pinTags = n => [n >= 54 && "ADC", PWM.has(n) && "PWM", EXTINT[n], PCINT[n] != null && "PCINT" + PCINT[n], SPECIAL[n]].filter(Boolean);
+
+// Mega 헤더 핀 위치 (보드 좌표, inch, 원점 = USB 쪽 아래 모서리, Rev3 도면 기준 근사)
+const MEGA_W = 4.0, MEGA_H = 2.1;
+const MEGA_PINS = [];        // {name, x, y, kind: 'io'|'5V'|'3V3'|'GND'|'VIN'|'other', n}
+(() => {
+  const io = (n, x, y) => MEGA_PINS.push({ name: pinName(n), n, x, y, kind: "io" });
+  const pw = (name, kind, x, y) => MEGA_PINS.push({ name, n: -1, x, y, kind });
+  // 위쪽 헤더 (y = 2.0")
+  [["SCL", 21], ["SDA", 20]].forEach(([s, n], i) => io(n === 21 ? 121 : 120, 0.84 + i * 0.1, 2.0));   // 위쪽 SDA/SCL은 D20/D21과 같은 선 → 아래서 별칭 처리
+  pw("AREF", "other", 1.04, 2.0); pw("GND", "GND", 1.14, 2.0);
+  for (let i = 0; i < 6; i++) io(13 - i, 1.24 + i * 0.1, 2.0);          // D13 … D8
+  for (let i = 0; i < 8; i++) io(7 - i, 1.9 + i * 0.1, 2.0);            // D7 … D0
+  for (let i = 0; i < 8; i++) io(14 + i, 2.8 + i * 0.1, 2.0);           // D14 … D21
+  // 아래쪽 헤더 (y = 0.1")
+  [["NC", "other"], ["IOREF", "other"], ["RESET", "other"], ["3V3", "3V3"], ["5V", "5V"], ["GND", "GND"], ["GND", "GND"], ["VIN", "VIN"]].forEach(([s, k], i) => pw(s, k, 1.0 + i * 0.1, 0.1));
+  for (let i = 0; i < 8; i++) io(54 + i, 1.9 + i * 0.1, 0.1);           // A0 … A7
+  for (let i = 0; i < 8; i++) io(62 + i, 2.8 + i * 0.1, 0.1);           // A8 … A15
+  // 오른쪽 2열 헤더 (x = 3.8 / 3.9")
+  pw("5V", "5V", 3.8, 1.95); pw("5V", "5V", 3.9, 1.95);
+  for (let r = 0; r < 16; r++) { io(22 + 2 * r, 3.8, 1.85 - r * 0.1); io(23 + 2 * r, 3.9, 1.85 - r * 0.1); }
+  pw("GND", "GND", 3.8, 0.25); pw("GND", "GND", 3.9, 0.25);
+  // 위쪽 SDA/SCL 별칭 → D20/D21과 같은 신호
+  for (const p of MEGA_PINS) if (p.n === 120 || p.n === 121) { p.n -= 100; p.name = pinName(p.n); p.alias = p.n === 20 ? "SDA" : "SCL"; }
+  MEGA_PINS.forEach((p, i) => p.id = p.kind === "io" ? p.name : `${p.name}#${i}`);
+})();
+const megaPinById = Object.fromEntries(MEGA_PINS.map(p => [p.id, p]));
+
+// ================= 부품 정의 (부품 좌표: f 전방 +, l 좌측 +, mm) =================
+// IR 모듈 로컬(x 우, y 전방) → 부품 좌표 (f = y, l = −x)
+const irL = (x, y) => [y, -x];
+const IRMOD = {
+  // LT11_V1.0 (Simulation/IR_Sensor/gen_ir_modules.py 기준): TCRT5000 5.8 × 10.2 mm, 0번 중앙 · 홀수 왼쪽 · 짝수 오른쪽, 파란 PCB 245 × 35 mm
+  ir11: { sw: 5.8, sl: 10.2, pcb: "pcb11",
+    sensors: { 0: [0.0,0.0], 1: [-12.5,-0.13], 2: [12.5,-0.13], 3: [-37.5,-1.2], 4: [37.5,-1.2], 5: [-62.5,-3.33], 6: [62.5,-3.33], 7: [-87.5,-6.55], 8: [87.5,-6.55], 9: [-112.5,-10.86], 10: [112.5,-10.86] },
+    order: [9, 7, 5, 3, 1, 0, 2, 4, 6, 8, 10],
+    outline: [[-121.0,-20.11],[-122.06,-19.67],[-122.5,-18.61],[-122.5,2.9],[-122.17,3.84],[-118.96,5.99],[-115.41,7.98],[-108.31,11.1],[-101.19,13.24],[-93.2,14.58],[-86.99,14.89],[90.54,14.79],[95.0,14.37],[99.44,13.63],[103.87,12.54],[108.31,11.1],[112.75,9.28],[117.19,7.03],[121.85,4.14],[122.49,3.05],[122.49,-18.76],[122.06,-19.67],[121.15,-20.1]],
+    holes: [[-39.97,-17.11],[39.97,-17.11],[-85.0,-17.11],[85.0,-17.11],[-119.5,-17.11],[119.5,-17.11],[-119.5,0.69],[119.5,0.69]], hole_d: 3.0,
+    // 뒤쪽 끝단 커넥터. 실물은 SMD 측면 진입형 약 1.0 mm 피치(추정)지만 배선이 겹쳐 보여서 표시용 2.0 mm 피치, 중심 ±22 (Ø3 홀 ±39.97과 안 겹침)
+    // ANALOG 13p = VCC, U0~U10, GND / DIGITAL 14p = VCC, 11ch, GND×2
+    connColor: "#ecebe4",
+    conn: { A: { cx: -22, cy: -17.96, n: 13, pitch: 2.0, depth: 4.3, name: "ANALOG 13P", extra: [] }, D: { cx: 22, cy: -17.96, n: 14, pitch: 2.0, depth: 4.3, name: "DIGITAL 14P", extra: ["GND"] } } },
+  // x = 스케치 SENSOR_W 실측 (±47, ±18), y(−26)는 모듈 문서값. 외곽은 gen_pcb.py 규칙으로 재생성
+  ir5: { sw: 10, sl: 16, pcb: "pcb11", connColor: "#ecebe4",          // 실장도(ir_sensor_pcb.svg)와 같은 파란 PCB
+    sensors: { 1: [-47,-26], 2: [-18,-26], 3: [0,0], 4: [18,-26], 5: [47,-26] },
+    order: [1, 2, 3, 4, 5],
+    outline: [[-54.9,-48],[-56.5,-47.7],[-57.8,-46.8],[-59,-44.1],[-58.9,-24.5],[-58,-21.3],[-56.1,-18.2],[-52.9,-15.6],[-48.7,-14.1],[-27,-14],[-24.5,-13.2],[-22.5,-11.4],[-8.9,8],[-6.3,10.2],[-2.7,11.7],[0.3,12],[2.9,11.6],[5.8,10.5],[8.2,8.7],[22.5,-11.4],[24.5,-13.2],[27,-14],[47,-14],[50.2,-14.4],[53.6,-16],[56,-18],[57.7,-20.6],[58.7,-23.6],[59,-44.5],[57.9,-46.8],[55.9,-47.9]],
+    holes: [[-32.5,-26],[32.5,-26]], hole_d: 3.2,
+    conn: { D: { cx: -44.84, cy: -43, n: 8, pitch: 2.54, depth: 5.4, name: "DIGITAL 8P", extra: ["GND"] }, A: { cx: 46.11, cy: -43, n: 7, pitch: 2.54, depth: 5.4, name: "ANALOG 7P", extra: [] } } },
+};
+// IR 커넥터 핀 순서 (사용자 확인): 오른쪽부터 VCC → 센서 1번 → 2번 … → 가장 왼쪽 GND
+function irPins(key) {
+  const M = IRMOD[key], pins = [];
+  for (const [side, { cx, cy, n, pitch, extra }] of Object.entries(M.conn)) {
+    const ids = Object.keys(M.sensors).map(Number).sort((a, b) => a - b);
+    const rightToLeft = [{ p: "VCC" }, ...ids.map(i => ({ s: i })), { p: "GND" }, ...extra.map(p => ({ p }))];
+    rightToLeft.forEach((nm, r) => {
+      const k = n - 1 - r, x = cx - n * pitch / 2 + pitch / 2 + k * pitch;
+      const kind = side === "A" ? "analog" : "digital";
+      pins.push(nm.s != null
+        ? { key: `${side}${nm.s}`, label: `${side === "A" ? "ANALOG" : "DIGITAL"} ${nm.s}번`, req: kind, cat: "ir", sensor: nm.s, out: kind, pitch, at: irL(x, cy) }
+        : { key: `${side}${nm.p}${rightToLeft.slice(0, r).filter(o => o.p === nm.p).length || ""}`, label: `${side === "A" ? "ANALOG" : "DIGITAL"} ${nm.p}${rightToLeft.slice(0, r).filter(o => o.p === nm.p).length ? " 2" : ""}`, req: nm.p === "VCC" ? "vcc" : "gnd", cat: "pwr", pitch, at: irL(x, cy) });
+    });
+  }
+  return pins;
+}
+const row = (f, keys, pitch = 2.54) => keys.map((k, i) => [k, [f, (keys.length - 1) / 2 * pitch - i * pitch]]);
+const TYPES = {
+  mega: { name: "Arduino Mega 2560", short: "Mega", color: "mega", single: true, fixed: true },
+  ir11: { name: "IR 11ch 모듈", short: "IR 11ch", note: "LT11 · 245 × 35 mm", color: "w-ir", single: true, pins: irPins("ir11") },
+  ir5: { name: "IR 5ch 모듈", short: "IR 5ch", note: "118 × 60 mm · x 실측", color: "w-ir", single: true, pins: irPins("ir5") },
+  us: { name: "초음파 HC-SR04", short: "US", note: "최대 4개 · 빔 반각 15°", color: "w-us", max: 4,
+    pins: row(-16, ["GND", "ECHO", "TRIG", "VCC"]).map(([k, at]) => ({ key: k, label: k, req: k === "VCC" ? "vcc" : k === "GND" ? "gnd" : "digital", cat: k === "VCC" || k === "GND" ? "pwr" : "us", at })) },
+  steer: { name: "조향 서보", short: "조향", note: "Servo.write · 40 × 20 mm", color: "w-act", single: true, box: [[-10, 10], [-20, 20]],
+    pins: row(-14, ["SIG", "VCC", "GND"]).map(([k, at]) => ({ key: k, label: k, req: k === "SIG" ? "servo" : k.toLowerCase(), cat: k === "SIG" ? "act" : "pwr", at })) },
+  brake: { name: "브레이크 서보", short: "브레이크", note: "Servo.write · 40 × 20 mm", color: "w-act", single: true, box: [[-10, 10], [-20, 20]],
+    pins: row(-14, ["SIG", "VCC", "GND"]).map(([k, at]) => ({ key: k, label: k, req: k === "SIG" ? "servo" : k.toLowerCase(), cat: k === "SIG" ? "act" : "pwr", at })) },
+  // 모터 드라이버: 앞쪽 = 모터 출력, 뒤쪽 = Mega 제어 (구동 전원은 배터리 → 드라이버, 시뮬 범위 밖)
+  driver: { name: "모터 드라이버", short: "드라이버", note: "PWM · DIR → 모터 출력", color: "w-act", single: true, box: [[-15, 15], [-20, 20]],
+    pins: [...row(-18, ["PWM", "DIR", "GND"]).map(([k, at]) => ({ key: k, label: k, req: k === "PWM" ? "pwm" : k === "DIR" ? "digital" : "gnd", cat: k === "GND" ? "pwr" : "act", at })),
+           ...row(18, ["OUTA", "OUTB"], 5.08).map(([k, at]) => ({ key: k, label: k === "OUTA" ? "OUT A" : "OUT B", req: "mout", cat: "mot", at }))] },
+  // 구동 모터 (엔코더 일체): 앞쪽 = 모터 단자(드라이버로), 뒤쪽 = 엔코더(Mega 직결)
+  drive: { name: "구동 모터 + 엔코더", short: "구동 모터", note: "M+/M− → 드라이버 · 엔코더 → Mega", color: "w-act", single: true, box: [[-15, 15], [-13, 13]],
+    pins: [...row(18, ["M+", "M-"], 5.08).map(([k, at]) => ({ key: k, label: k === "M+" ? "M+" : "M−", req: "min", cat: "mot", at })),
+           ...row(-18, ["ENCA", "ENCB", "EVCC", "EGND"]).map(([k, at]) => ({ key: k, label: { ENCA: "엔코더 A", ENCB: "엔코더 B", EVCC: "엔코더 VCC", EGND: "엔코더 GND" }[k],
+             req: k === "ENCA" ? "extint" : k === "ENCB" ? "digital" : k === "EVCC" ? "vcc" : "gnd", cat: k === "ENCA" || k === "ENCB" ? "act" : "pwr", at }))] },
+};
+const PALETTE = ["ir5", "ir11", "us", "steer", "drive", "driver", "brake"];
+
+// ================= 기본 상태 (combined.ino 배선) =================
+// Mega 전원 핀 id (MEGA_PINS 순서 기준)
+const PWR = kind => MEGA_PINS.filter(p => p.kind === kind).map(p => p.id);
+// 차량 동작 파라미터 (실측 전 가정값) — [키, 라벨, 단위, 기본값, step] 또는 체크박스 [키, 라벨, "bool", 기본값]
+const PARAM_GROUPS = [
+  ["차체", [["L", "휠베이스 L", "cm", 26, 0.5], ["W", "윤거", "cm", 17, 0.5], ["front", "앞 오버행", "cm", 6, 0.5], ["rear", "뒤 오버행", "cm", 6, 0.5]], "body"],
+  ["구동 (모터 드라이버 PWM + DIR)", [["vmax", "PWM 255 속도", "cm/s", 200, 5], ["tau", "모터 시정수 τ", "s", 0.15, 0.01], ["db", "데드밴드", "PWM", 10, 1], ["brakeTau", "브레이크 τ", "s", 0.05, 0.01], ["dirRev", "DIR HIGH = 후진", "bool", 1]]],
+  ["조향 서보", [["sNeutral", "중립", "°", 110, 1], ["sMin", "최소 (기구 한계)", "°", 75, 1], ["sMax", "최대 (기구 한계)", "°", 145, 1], ["sGain", "게인 (바퀴°/서보°)", "", 1, 0.05], ["sSign", "부호 (−1: 각도↑ = 우회전)", "", -1, 2], ["sRate", "서보 속도 (0 = 즉시)", "°/s", 300, 10], ["sDelay", "서보 응답 지연", "ms", 20, 5], ["sBacklash", "조향 백래시 (유격)", "°", 2, 0.5], ["sTrim", "직진 서보각 오차 (트림)", "°", 2, 0.5]]],
+  ["엔코더 (구동 모터 일체)", [["wheelD", "바퀴 지름", "cm", 6.5, 0.1], ["gear", "기어비 (모터:바퀴)", "", 8, 0.5], ["ppr", "모터 1회전 펄스 (채널당)", "", 11, 1], ["aLeads", "전진 시 A가 B보다 앞섬", "bool", 1]]],
+  ["IR 센서 (TCRT5000)", [["irH", "장착 높이", "mm", 2.5, 0.1], ["irSpot", "감지 영역 지름", "mm", 4, 0.5], ["irWhite", "흰색 ADC", "", 920, 10], ["irBlack", "검정 ADC", "", 100, 10], ["irTh", "디지털 임계", "", 512, 1], ["irWhiteHigh", "디지털: 흰색 = HIGH", "bool", 1], ["irNoise", "ADC 노이즈 (σ)", "", 8, 1], ["irVar", "센서별 감도 편차 (±)", "%", 12, 1], ["irFloorVar", "바닥 반사율 얼룩 (±)", "%", 6, 1]]],
+  ["타이어·차체 동역학", [["dyn", "타이어 미끄러짐 모델 사용", "bool", 1], ["mass", "질량", "kg", 1.5, 0.1], ["cgX", "무게중심 (후축에서 앞으로)", "cm", 12, 0.5], ["cf", "앞 코너링 강성 (축당)", "N/rad", 40, 5], ["cr", "뒤 코너링 강성 (축당)", "N/rad", 60, 5], ["mu", "마찰 계수 μ", "", 0.8, 0.05]]],
+];
+const DEFAULT_PARAMS = () => Object.fromEntries(PARAM_GROUPS.filter(g => !g[2]).flatMap(g => g[1].map(f => [f[0], f[3]])));
+const DEFAULT = () => {
+  const V5 = PWR("5V"), G = PWR("GND");
+  return {
+    body: { L: 26, W: 17, front: 6, rear: 6 },
+    params: DEFAULT_PARAMS(),
+    comps: [
+      { id: "mega", type: "mega", x: 13, y: 0, yaw: 0 },
+      { id: "ir11", type: "ir11", x: 31.5, y: 0, yaw: 0 },        // 앞: 11ch
+      { id: "ir5", type: "ir5", x: -8.5, y: 0, yaw: 180 },        // 뒤: 5ch, 후방을 향함 (3번이 뒤로 돌출)
+      { id: "steer", type: "steer", x: 4.5, y: 3.5, yaw: 0 },
+      { id: "drive", type: "drive", x: 1.5, y: 0, yaw: 90 },
+      { id: "driver", type: "driver", x: 4.5, y: -4.5, yaw: 90 },
+    ],
+    wires: [
+      // 조향 D9 (Servo는 Timer5 사용 → 44~46 피함), PWM D6 (Timer4 490 Hz), DIR D7, 엔코더 A/B = D2(INT4)/D3(INT5) → 둘 다 인터럽트, 4체배
+      ["steer.SIG", "D9"], ["driver.PWM", "D6"], ["driver.DIR", "D7"],
+      ["drive.ENCA", "D2"], ["drive.ENCB", "D3"], ["drive.M+", "driver.OUTA"], ["drive.M-", "driver.OUTB"],
+      // IR 센서 배선은 applySchematic()으로 회로도 기준 추가
+      ["drive.EVCC", V5[1]], ["drive.EGND", G[3]], ["driver.GND", G[4]],
+      ["steer.VCC", V5[2]], ["steer.GND", G[2]],
+    ].map(([from, to]) => ({ from, to, via: [] })),
+  };
+};
+
+let S = DEFAULT();
+const STORE = "irsim.vehicle.v5";
+let fresh = true;
+try { const raw = localStorage.getItem(STORE); if (raw) { S = fromJSON(JSON.parse(raw)); fresh = false; } } catch (e) { S = DEFAULT(); }
+let editingCar = null;
+const save = () => { if (editingCar) return; try { localStorage.setItem(STORE, JSON.stringify(toJSON())); } catch (e) {} };
+
+const comp = id => S.comps.find(c => c.id === id);
+const pinDef = (c, key) => TYPES[c.type].pins?.find(p => p.key === key);
+const compPins = c => TYPES[c.type].pins || [];
+const compName = c => TYPES[c.type].max ? `${TYPES[c.type].short}${c.id.slice(2)}` : TYPES[c.type].name;
+const catColor = cat => cat === "mot" ? "w-act" : "w-" + cat;
+function epInfo(ep) {             // 끝점 → {mega, kind, req, comp, p}
+  if (!ep.includes(".")) { const m = megaPinById[ep]; return m ? { mega: true, kind: m.kind, m } : null; }
+  const [id, key] = ep.split("."), c = comp(id), p = c && pinDef(c, key); return p ? { mega: false, req: p.req, c, p } : null;
+}
+const epName = ep => { const i = epInfo(ep); return !i ? ep : i.mega ? `Mega ${i.m.alias || i.m.name}` : `${compName(i.c)} ${i.p.label}`; };
+const isPwr = req => req === "vcc" || req === "gnd";
+function canConnect(a, b) {
+  const A = epInfo(a), B = epInfo(b);
+  if (!A || !B || a === b) return { ok: false };
+  if (A.mega && B.mega) return { ok: false, msg: "Mega 핀끼리는 연결하지 않습니다" };
+  if (A.mega || B.mega) { const C = A.mega ? B : A; return (C.req === "mout" || C.req === "min") ? { ok: false, msg: "모터 단자는 모터 드라이버 출력에 연결합니다" } : { ok: true }; }
+  if (A.c.id === B.c.id) return { ok: false, msg: "같은 부품의 핀끼리는 연결하지 않습니다" };
+  if (isPwr(A.req) && A.req === B.req) return { ok: true };
+  if ((A.req === "mout" && B.req === "min") || (A.req === "min" && B.req === "mout")) return { ok: true };
+  return { ok: false, msg: "신호선은 Mega 핀에 연결합니다 (부품끼리는 전원끼리, 모터↔드라이버 출력만)" };
+}
+
+// ================= 좌표 변환 =================
+const toBodyC = (c, f, l) => { const co = Math.cos(c.yaw * D2R), si = Math.sin(c.yaw * D2R); return [c.x + (co * f - si * l) / 10, c.y + (si * f + co * l) / 10]; };
+const fromBodyC = (c, x, y) => { const dx = (x - c.x) * 10, dy = (y - c.y) * 10, co = Math.cos(c.yaw * D2R), si = Math.sin(c.yaw * D2R); return [co * dx + si * dy, -si * dx + co * dy]; };
+// Mega 보드 좌표(inch) → 부품 좌표(mm): 긴 변이 전방, USB 쪽이 뒤, 디지털 헤더(위쪽)가 좌측
+const megaL = (x, y) => [(x - MEGA_W / 2) * IN, (y - MEGA_H / 2) * IN];
+const megaPinPos = p => toBodyC(comp("mega"), ...megaL(p.x, p.y));
+const compPinPos = (c, p) => toBodyC(c, ...p.at);
+function endPos(ep) {           // "id.KEY" 또는 Mega 핀 id
+  if (ep.includes(".")) { const [id, key] = ep.split("."); const c = comp(id); const p = c && pinDef(c, key); return p ? compPinPos(c, p) : null; }
+  const p = megaPinById[ep]; return p ? megaPinPos(p) : null;
+}
+
+// ================= 파생 매핑 (검증·탭 2용) =================
+function derive() {
+  const conn = {};                                     // 끝점 → 반대쪽 끝점 목록 (부품 핀 "id.KEY" 또는 Mega 핀 id)
+  for (const w of S.wires) { (conn[w.from] ||= []).push(w.to); (conn[w.to] ||= []).push(w.from); }
+  const megaOf = (id, key) => { const ids = conn[`${id}.${key}`] || []; const p = ids.map(i => megaPinById[i]).find(p => p && p.kind === "io"); return p ? p.n : -1; };
+  const act = {};
+  for (const [k, id, key] of [["steer","steer","SIG"],["brake","brake","SIG"],["pwm","driver","PWM"],["dir","driver","DIR"],["encA","drive","ENCA"],["encB","drive","ENCB"],["rc1","rc","CH1"],["rc2","rc","CH2"],["rc3","rc","CH3"]])
+    act[k] = comp(id) ? megaOf(id, key) : -1;
+  const ir = [], us = [];
+  for (const c of S.comps) {
+    if (c.type === "ir5" || c.type === "ir11") for (const p of compPins(c)) if (p.sensor != null) { const n = megaOf(c.id, p.key); if (n >= 0) ir.push({ comp: c.id, sensor: p.sensor, out: p.out, pin: n }); }
+    if (c.type === "us") us.push({ id: c.id, trig: megaOf(c.id, "TRIG"), echo: megaOf(c.id, "ECHO") });
+  }
+  return { conn, act, ir, us };
+}
+
+// ================= JSON =================
+function toJSON() {
+  const D = derive();
+  return {
+    format: "ir-linetracer-vehicle", version: 2,
+    frame: { origin: "rear axle center", x: "forward", y: "left", unit: "cm", yaw: "deg, CCW +", part_local: "mm, f forward, l left" },
+    body: { ...S.body },
+    params: { ...S.params },
+    components: S.comps.map(c => ({ id: c.id, type: c.type, mount: { x: +c.x.toFixed(2), y: +c.y.toFixed(2), yaw: c.yaw } })),
+    wires: S.wires.map(w => ({ from: w.from, to: megaPinById[w.to] ? "mega." + (megaPinById[w.to].alias || megaPinById[w.to].name) : w.to, to_id: w.to, via: w.via.map(p => p.map(v => +v.toFixed(2))) })),
+    derived: {
+      actuators: Object.fromEntries(Object.entries(D.act).map(([k, v]) => [k, pinName(v)])),
+      ir_channels: D.ir.map(r => { const c = comp(r.comp), [f, l] = irL(...IRMOD[c.type].sensors[r.sensor]), [x, y] = toBodyC(c, f, l);
+        return { module: r.comp, sensor: r.sensor, read: r.out === "analog" ? "analogRead" : "digitalRead", pin: pinName(r.pin), body_cm: [+x.toFixed(2), +y.toFixed(2)] }; }),
+      ultrasonic: D.us.map(u => { const c = comp(u.id); return { id: u.id, trig: pinName(u.trig), echo: pinName(u.echo), mount: { x: c.x, y: c.y, yaw: c.yaw } }; }),
+    },
+  };
+}
+function fromJSON(j) {
+  if (!j || j.format !== "ir-linetracer-vehicle" || j.version !== 2) throw new Error("형식이 다릅니다 (format: ir-linetracer-vehicle, version 2)");
+  const d = DEFAULT(), num = (v, dv) => Number.isFinite(+v) ? +v : dv;
+  if (j.body) for (const k of ["L", "W", "front", "rear"]) d.body[k] = num(j.body[k], d.body[k]);
+  if (j.params) for (const k of Object.keys(d.params)) d.params[k] = num(j.params[k], d.params[k]);
+  d.comps = (j.components || []).filter(c => TYPES[c.type]).map(c => ({ id: String(c.id), type: c.type, x: num(c.mount?.x, 0), y: num(c.mount?.y, 0), yaw: num(c.mount?.yaw, 0) }));
+  if (!d.comps.some(c => c.type === "mega")) d.comps.unshift({ id: "mega", type: "mega", x: 13, y: 0, yaw: 0 });
+  const hasComp = ep => d.comps.some(c => c.id === ep.split(".")[0]);
+  d.wires = (j.wires || []).map(w => ({ from: String(w.from), to: megaPinById[w.to_id] ? w.to_id : String(w.to_id || w.to || ""), via: (w.via || []).filter(p => p.length === 2).map(p => [+p[0], +p[1]]) }))
+    .filter(w => w.from.includes(".") && hasComp(w.from) && (megaPinById[w.to] || (w.to.includes(".") && hasComp(w.to))));
+  return d;
+}
+
+// ================= 검증 =================
+function validate() {
+  const D = derive(), issues = [], badPins = new Set(), pinState = {};   // pinState["id.KEY"] = 'error'|'warn'
+  const add = (lvl, msg, refs = []) => { issues.push({ lvl, msg }); refs.forEach(r => { if (pinState[r] !== "error") pinState[r] = lvl; }); };
+  const servoUsed = Object.values({ a: D.act.steer, b: D.act.brake }).some(p => p >= 0);
+  const users = {};                                     // Mega io 핀 번호 → [{ref, label, cat}]
+  // 전원 넷: 선으로 이어진 끝점 묶음 (부품 VCC/GND끼리 이어도 됨)
+  const parent = {}, find = a => (parent[a] ??= a) === a ? a : (parent[a] = find(parent[a]));
+  for (const w of S.wires) parent[find(w.from)] = find(w.to);
+  const netInfo = {};
+  for (const id of Object.keys(D.conn)) { const r = find(id), mp = megaPinById[id], ni = netInfo[r] ||= { v: false, g: false, vin: false, io: false };
+    if (mp) { if (mp.kind === "5V" || mp.kind === "3V3") ni.v = true; else if (mp.kind === "GND") ni.g = true; else if (mp.kind === "VIN") ni.vin = true; else ni.io = true; } }
+  for (const c of S.comps) for (const p of compPins(c)) {
+    const ref = `${c.id}.${p.key}`, label = `${compName(c)} ${p.label}`, tos = D.conn[ref] || [];
+    if (p.req === "vcc" || p.req === "gnd") {
+      if (!tos.length) {
+        const irSide = p.key[0], irUsed = c.type.startsWith("ir") && compPins(c).some(q => q.sensor != null && q.key[0] === irSide && (D.conn[`${c.id}.${q.key}`] || []).length);
+        if (!c.type.startsWith("ir") || irUsed) add("warn", `${label}: 전원 미연결`, [ref]);
+        continue;
+      }
+      const ni = netInfo[find(ref)] || {};
+      if (ni.v && ni.g) add("error", `${label}: 같은 선에 5V와 GND가 함께 연결됨 (단락)`, [ref]);
+      else if (ni.io) add("error", `${label}: 전원선이 신호 핀에 연결됨`, [ref]);
+      else if (p.req === "vcc" && !ni.v) add(ni.vin ? "warn" : "warn", `${label}: 이어진 선에 Mega 5V/3V3가 없음${ni.g ? " (GND에 연결됨)" : ni.vin ? " (VIN = 배터리 전압)" : ""}`, [ref]);
+      else if (p.req === "gnd" && !ni.g) add(ni.v ? "error" : "warn", `${label}: 이어진 선에 Mega GND가 없음${ni.v ? " (5V에 연결됨)" : ""}`, [ref]);
+      continue;
+    }
+    if (p.req === "mout" || p.req === "min") {
+      const want = p.req === "mout" ? "min" : "mout";
+      if (!tos.some(t => t.includes(".") && (() => { const [i, kk] = t.split("."); const q = comp(i) && pinDef(comp(i), kk); return q && q.req === want; })()))
+        add("warn", `${label}: ${p.req === "mout" ? "구동 모터 단자" : "모터 드라이버 출력"}에 미연결`, [ref]);
+      continue;
+    }
+    const megaTos = tos.filter(t => megaPinById[t]);
+    if (!megaTos.length) { if (!(p.sensor != null && (D.conn[`${c.id}.${p.key[0] === "A" ? "D" : "A"}${p.sensor}`] || []).length)) add("warn", `${label}: 미연결`, [ref]); continue; }
+    for (const to of megaTos) {
+      const mp = megaPinById[to];
+      if (mp.kind !== "io") { add("error", `${label} → ${mp.name}: 신호선이 전원/기준 핀에 연결됨`, [ref]); continue; }
+      const n = mp.n, P = pinName(n);
+      (users[n] ||= []).push({ ref, label, cat: p.cat });
+      if (n <= 1) add("error", `${label} = ${P}: D0/D1은 Serial(USB) 전용이라 Serial 모니터와 충돌`, [ref]);
+      if (p.req === "analog" && n < 54) add("error", `${label} = ${P}: analogRead는 A0~A15만 가능`, [ref]);
+      if (p.req === "pwm" && !PWM.has(n)) add("error", `${label} = ${P}: PWM 불가 핀 (가능: 2~13, 44~46)`, [ref]);
+      if (p.req === "pwm" && servoUsed && n >= 44 && n <= 46) add("error", `${label} = ${P}: Servo 라이브러리가 Timer5를 쓰므로 44~46 PWM 불가`, [ref]);
+      if (p.req === "extint" && !EXTINT[n]) add("error", `${label} = ${P}: attachInterrupt 불가 (가능: 2, 3, 18, 19, 20, 21)`, [ref]);
+      if (p.req === "pcint" && PCINT[n] == null) add("error", `${label} = ${P}: 메가에서 PCINT 불가 (가능: 10~15, 50~53, A8~A15)`, [ref]);
+    }
+  }
+  for (const [n, xs] of Object.entries(users)) if (xs.length > 1) { add("error", `${pinName(+n)} 중복: ${xs.map(x => x.label).join(", ")}`, xs.map(x => x.ref)); badPins.add(+n); }
+  for (const [n, xs] of Object.entries(users)) if (xs.some(x => pinState[x.ref] === "error")) badPins.add(+n);
+  // combined.ino 전용 점검
+  const rc = [D.act.rc1, D.act.rc2, D.act.rc3];
+  if (comp("rc") && rc.every(p => PCINT[p] != null)) {
+    const groups = new Set(rc.map(PCGROUP));
+    if (groups.size > 1) add("warn", `RC 3채널이 서로 다른 PCINT 그룹(${[...groups].join(", ")})에 있음 → ISR을 그룹별로 작성해야 함`, ["rc.CH1", "rc.CH2", "rc.CH3"]);
+    else if (!groups.has("PCINT2 · Port K")) add("warn", `combined.ino는 PCIE2 / PCINT2_vect(Port K = A8~A15)만 사용 → 지금 핀(${[...groups][0]})이면 스케치의 PCIE·PCMSK·ISR 벡터도 바꿔야 함`, ["rc.CH1", "rc.CH2", "rc.CH3"]);
+    else add("info", `RC PCINT 번호 ${rc.map(p => PCINT[p]).join(", ")} → 스케치의 PCMSK2를 (1<<PCINT${rc.map(p => PCINT[p]).join(")|(1<<PCINT")}), RC_PINS를 {${rc.map(pinName).join(", ")}}로 맞춰야 ISR이 펄스를 읽음`);
+  }
+  if (D.act.encA >= 0 && EXTINT[D.act.encA]) add("info", EXTINT[D.act.encB] ? `엔코더 A ${pinName(D.act.encA)} = ${EXTINT[D.act.encA]}, B ${pinName(D.act.encB)} = ${EXTINT[D.act.encB]} → A·B 모두 CHANGE 인터럽트로 4체배 가능`
+    : `엔코더 A ${pinName(D.act.encA)} = ${EXTINT[D.act.encA]} → B가 인터럽트 핀이 아니라 A 엣지만 셀 수 있음 (2체배)`);
+  add("info", "Mega 헤더 핀 위치는 Rev3 도면 기준 근사값입니다.");
+  return { issues, pinState, users, badPins };
+}
+let V = { issues: [], pinState: {}, users: {}, badPins: new Set() };
+function renderValidation() {
+  V = validate();
+  const order = { error: 0, warn: 1, info: 2 }, name = { error: "오류", warn: "주의", info: "참고" };
+  const list = [...V.issues].sort((a, b) => order[a.lvl] - order[b.lvl]);
+  const ne = list.filter(i => i.lvl === "error").length, nw = list.filter(i => i.lvl === "warn").length;
+  $("sumOut").innerHTML = ne + nw === 0 ? `<span class="chip ok">문제 없음</span>` : `${ne ? `<span class="chip error">오류 ${ne}</span>` : ""}${nw ? `<span class="chip warn">주의 ${nw}</span>` : ""}`;
+  $("issues").innerHTML = list.map(i => `<li><span class="chip ${i.lvl}">${name[i.lvl]}</span><span>${i.msg}</span></li>`).join("");
+  let h = "";
+  for (let n = 0; n < PIN_N; n++) { const xs = V.users[n] || [];
+    h += `<div class="${xs.length ? "u-" + xs[0].cat : ""}${V.badPins.has(n) ? " bad" : ""}" title="${pinName(n)}${pinTags(n).length ? " · " + pinTags(n).join(" · ") : ""}${xs.length ? " — " + xs.map(x => x.label).join(", ") : ""}">${pinName(n)}</div>`; }
+  $("pinmap").innerHTML = h;
+}
+
+// ================= 패널 =================
+let sel = { kind: "comp", id: "ir5" };        // {kind:'comp', id} | {kind:'wire', i} | null
+function buildPalette() {
+  $("parts").innerHTML = PALETTE.map(t => { const T = TYPES[t], n = S.comps.filter(c => c.type === t).length, full = T.single ? n >= 1 : n >= T.max;
+    return `<div class="part${full ? " used" : ""}" data-type="${t}" tabindex="${full ? -1 : 0}" role="button" aria-disabled="${full}"><b><i style="background:var(--${T.color})"></i>${T.name}</b><span>${full ? (T.single ? "배치됨" : `${T.max}/${T.max} 배치됨`) : T.max ? `${n}/${T.max} · ${T.note}` : T.note}</span></div>`; }).join("");
+  $("parts").querySelectorAll(".part:not(.used)").forEach(el => { el.addEventListener("pointerdown", paletteDown); el.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); addComp(el.dataset.type); } }); });
+}
+function defaultSpot(type) {
+  const B = S.body;
+  const spots = { ir5: [-B.rear - 2.5, 0, 180], ir11: [B.L + B.front - 0.5, 0, 0], steer: [4.5, 3.5, 0], brake: [21, 4.5, 0], drive: [1.5, 0, 90], driver: [4.5, -4.5, 90] };
+  if (type === "us") { const i = S.comps.filter(c => c.type === "us").length; return [[B.L + B.front - 1.5, 0, 0], [20, B.W / 2 - 1, 90], [20, -B.W / 2 + 1, -90], [-B.rear + 1.5, 0, 180]][i] || [15, 0, 0]; }
+  return spots[type] || [15, 0, 0];
+}
+function addComp(type, at) {
+  const T = TYPES[type], n = S.comps.filter(c => c.type === type).length;
+  if (T.single ? n >= 1 : n >= T.max) return;
+  let id = type; if (T.max) { for (let i = 1; i <= T.max; i++) if (!comp("us" + i)) { id = "us" + i; break; } }
+  const [x, y, yaw] = defaultSpot(type);
+  const c = { id, type, x: at ? Math.round(at[0] * 2) / 2 : x, y: at ? Math.round(at[1] * 2) / 2 : y, yaw };
+  S.comps.push(c); sel = { kind: "comp", id }; changed(true);
+}
+function removeComp(id) {
+  if (id === "mega") return;
+  S.comps = S.comps.filter(c => c.id !== id); S.wires = S.wires.filter(w => w.from.split(".")[0] !== id && w.to.split(".")[0] !== id);
+  sel = null; changed(true);
+}
+// 1/10_IR_MEGA 회로도 기준 센서 배선 (LT11/LT5 ANALOG·DIGITAL, 초음파 CN7·CN6·CN5·CN2)
+const SCHEM = {
+  ir11: { A: Array.from({ length: 11 }, (_, i) => "A" + i), D: [52, 50, 48, 46, 44, 42, 40, 38, 36, 34, 32].map(n => "D" + n) },
+  ir5: { A: [11, 12, 13, 14, 15].map(n => "A" + n), D: [53, 51, 49, 47, 45].map(n => "D" + n) },
+  us: [["CN7", 41, 43], ["CN6", 37, 39], ["CN5", 33, 35], ["CN2", 29, 31]],      // [커넥터, TRIG(2번), ECHO(3번)], VCC = 5V (회로도 +3.3V 표기 → shield_pinmap.md에서 5V로 정정)
+};
+function applySchematic(quiet = false) {
+  const V5 = PWR("5V"), V33 = PWR("3V3"), G = PWR("GND"); let gi = 0, vi = 0;
+  const nextG = () => G[gi++ % G.length], nextV = () => V5[vi++ % V5.length];
+  const done = [];
+  const wire = (from, to) => { S.wires = S.wires.filter(w => w.from !== from && w.to !== from); S.wires.push({ from, to, via: [] }); };
+  for (const c of S.comps) {
+    if (c.type === "ir5" || c.type === "ir11") {
+      const m = SCHEM[c.type];
+      for (const p of compPins(c)) { const ref = `${c.id}.${p.key}`, side = p.key[0];
+        if (p.sensor != null) wire(ref, m[side][c.type === "ir11" ? p.sensor : p.sensor - 1]); else wire(ref, p.req === "vcc" ? nextV() : nextG()); }
+      done.push(`${TYPES[c.type].short} A ${m.A[0]}~${m.A.at(-1)}, D ${m.D.join("·").replace(/D/g, "")}`);
+    }
+  }
+  S.comps.filter(c => c.type === "us").sort((a, b) => a.id.localeCompare(b.id)).forEach((c, i) => {
+    const [cn, trig, echo] = SCHEM.us[i];
+    wire(`${c.id}.TRIG`, "D" + trig); wire(`${c.id}.ECHO`, "D" + echo); wire(`${c.id}.VCC`, nextV()); wire(`${c.id}.GND`, nextG());
+    done.push(`${compName(c)} = ${cn} (TRIG D${trig}, ECHO D${echo})`);
+  });
+  if (quiet) return;
+  $("autoMsg").textContent = done.length ? "연결함: " + done.join(" · ") : "배치된 센서가 없습니다.";
+  changed(true);
+}
+function makeDefault() { S = DEFAULT(); applySchematic(true); }
+function removeWire(i) { S.wires.splice(i, 1); sel = null; changed(true); }
+
+function buildSel() {
+  const btns = $("selBtns"), body = $("selBody");
+  if (!sel) { $("selTitle").textContent = "선택한 부품"; btns.innerHTML = ""; body.innerHTML = `<p class="sub">차량 위 부품이나 선을 클릭하면 위치·배선이 여기 표시됩니다.</p>`; return; }
+  if (sel.kind === "wire") { const w = S.wires[sel.i]; if (!w) { sel = null; return buildSel(); }
+    $("selTitle").textContent = "선택한 선";
+    btns.innerHTML = `<button type="button" class="danger" id="selDel">선 삭제</button>`;
+    body.innerHTML = `<p class="sub"><b style="color:var(--fg)">${epName(w.from)}</b> → <b style="color:var(--fg)">${epName(w.to)}</b> · 꺾는 점 ${w.via.length}개</p>`;
+    $("selDel").onclick = () => removeWire(sel.i); return; }
+  const c = comp(sel.id); if (!c) { sel = null; return buildSel(); }
+  const T = TYPES[c.type];
+  $("selTitle").textContent = compName(c);
+  btns.innerHTML = `<button type="button" id="rotL" title="반시계 5°">⟲ 5°</button><button type="button" id="rotR" title="시계 5°">⟳ 5°</button>${T.fixed ? "" : `<button type="button" class="danger" id="selDel">제거</button>`}`;
+  let h = `<div class="fld three">
+    <label for="sx">x 전방 [cm]<input id="sx" type="number" step="0.5" value="${+c.x.toFixed(2)}"></label>
+    <label for="sy">y 좌측 [cm]<input id="sy" type="number" step="0.5" value="${+c.y.toFixed(2)}"></label>
+    <label for="sw">yaw [°]<input id="sw" type="number" step="5" value="${c.yaw}"></label></div>`;
+  if (c.type === "mega") {
+    const used = S.wires.filter(w => true);
+    h += `<p class="sub">101.6 × 53.3 mm. 원점 = 보드 중심, USB가 뒤쪽. 연결된 선 ${used.length}개.</p>`;
+  } else {
+    const D = derive();
+    h += `<div class="tbl-wrap"><table class="ch"><thead><tr><th>부품 핀</th><th>Mega</th><th>${c.type.startsWith("ir") ? "센서 x, y [cm]" : "필요"}</th><th></th></tr></thead><tbody>`;
+    for (const p of compPins(c)) {
+      const ref = `${c.id}.${p.key}`, tos = D.conn[ref] || [], st = V.pinState[ref];
+      let third = { analog: "A0~A15", digital: "디지털", pwm: "PWM 핀", servo: "디지털", extint: "INT 핀", pcint: "PCINT 핀", vcc: "5V", gnd: "GND", mout: "모터 M±", min: "드라이버 OUT" }[p.req];
+      if (p.sensor != null) { const [x, y] = toBodyC(c, ...irL(...IRMOD[c.type].sensors[p.sensor])); third = `${x.toFixed(1)}, ${y.toFixed(1)}`; }
+      h += `<tr><td class="n">${p.label}</td><td class="${st ? "st-" + st : ""}">${tos.map(epName).join(", ") || "—"}</td><td class="n">${third}</td><td>${tos.length ? `<button type="button" data-unwire="${ref}" aria-label="${p.label} 연결 해제">✕</button>` : ""}</td></tr>`;
+    }
+    h += `</tbody></table></div>`;
+    if (c.type.startsWith("ir")) h += `<p class="sub">원점 = ${c.type === "ir5" ? "3번(중앙, 전방 돌출)" : "0번(중앙)"} 센서 중심. ANALOG 커넥터에서 뽑으면 analogRead, DIGITAL이면 digitalRead.</p>`;
+  }
+  body.innerHTML = h;
+  for (const [id, k] of [["sx", "x"], ["sy", "y"], ["sw", "yaw"]]) $(id).oninput = e => { const v = parseFloat(e.target.value); if (Number.isFinite(v)) { c[k] = v; changed(false); } };
+  for (const id of ["sx", "sy", "sw"]) $(id).onchange = () => changed(true);
+  $("rotL").onclick = () => { c.yaw = norm(c.yaw + 5); changed(true); };
+  $("rotR").onclick = () => { c.yaw = norm(c.yaw - 5); changed(true); };
+  if ($("selDel")) $("selDel").onclick = () => removeComp(c.id);
+  body.querySelectorAll("[data-unwire]").forEach(b => b.onclick = () => { S.wires = S.wires.filter(w => w.from !== b.dataset.unwire && w.to !== b.dataset.unwire); changed(true); });
+}
+const norm = a => { a = ((a + 180) % 360 + 360) % 360 - 180; return a === -180 ? 180 : a; };
+function buildBody() {
+  const P = S.params;
+  $("paramBody").innerHTML = PARAM_GROUPS.map(([title, fields, tgt]) => `<div style="display:flex;flex-direction:column;gap:6px"><span class="label">${title}</span><div class="fld">` +
+    fields.map(([k, label, unit, , step]) => { const obj = tgt === "body" ? S.body : P, id = "pm_" + k;
+      return unit === "bool" ? `<label class="switch" for="${id}" style="grid-column:1/-1;flex-direction:row"><input id="${id}" type="checkbox"${obj[k] ? " checked" : ""}>${label}</label>`
+        : `<label for="${id}">${label}${unit ? ` [${unit}]` : ""}<input id="${id}" type="number" step="${step}" value="${obj[k]}"></label>`; }).join("") + `</div></div>`).join("") +
+    `<p class="sub" id="paramDerived"></p>`;
+  for (const [, fields, tgt] of PARAM_GROUPS) for (const [k, , unit] of fields) {
+    const el = $("pm_" + k), obj = () => tgt === "body" ? S.body : S.params;
+    if (unit === "bool") el.onchange = () => { obj()[k] = el.checked ? 1 : 0; paramDerived(); save(); };
+    else el.oninput = () => { const v = parseFloat(el.value); if (Number.isFinite(v) && (tgt !== "body" || v > 0)) { obj()[k] = v; paramDerived(); changed(false); } };
+  }
+  paramDerived();
+}
+function paramDerived() {
+  const P = S.params, cpr = P.ppr * 4 * P.gear, cpc = countsPerCm(P);
+  $("paramDerived").textContent = `엔코더 ${cpr} 카운트/바퀴 1회전 (4체배) · ${cpc.toFixed(2)} 카운트/cm · PWM 255에서 ${(P.vmax * cpc).toFixed(0)} 카운트/s. ` +
+    `조향 ${P.sMin}°~${P.sMax}° → 바퀴 ${(P.sSign * P.sGain * (P.sMin - P.sNeutral)).toFixed(0)}°~${(P.sSign * P.sGain * (P.sMax - P.sNeutral)).toFixed(0)}° (좌 +). 서보 펄스 544~2400 µs = 0~180°.`;
+}
+function changed(full = true) {
+  if (full) { renderValidation(); buildPalette(); buildSel(); }
+  else { const c = sel?.kind === "comp" && comp(sel.id); if (c) for (const [id, k] of [["sx", "x"], ["sy", "y"], ["sw", "yaw"]]) { const el = $(id); if (el && document.activeElement !== el) el.value = +c[k].toFixed(2); } }
+  if (!$("ioText").hidden) $("ioText").value = JSON.stringify(toJSON(), null, 2);
+  save(); draw();
+}
+
+// ================= 캔버스 (화면 위 = 차량 +x, 화면 왼쪽 = 차량 +y) =================
+const cv = $("cv"), ctx = cv.getContext("2d");
+const cam = { x: 14, y: 0, span: 60 };
+const colors = {};
+const CN = ["field","grid","grid-major","muted","fg","panel","car","front","accent","pcb","pcb-edge","pcb11","pcb11-edge","pad","gold","beam","beam-edge","us","mega","mega-edge","header","part","part-edge","w-ir","w-us","w-act","w-rc","w-vcc","w-gnd","err","warn","car1","car2","car3","car4"];
+const loadColors = () => { const cs = getComputedStyle(document.documentElement); for (const n of CN) colors[n] = cs.getPropertyValue("--" + n).trim(); draw(); };
+matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", loadColors);
+new MutationObserver(loadColors).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+function resize() { const r = cv.getBoundingClientRect(); const w = Math.round(r.width * dpr()), h = Math.round(r.height * dpr()); if (w > 0 && (cv.width !== w || cv.height !== h)) { cv.width = w; cv.height = h; } }
+const scale = () => Math.min(cv.width, cv.height) / cam.span;
+const toPx = (x, y) => { const s = scale(); return [cv.width / 2 - (y - cam.y) * s, cv.height / 2 - (x - cam.x) * s]; };
+const toBody = (px, py) => { const s = scale(); return [cam.x - (py - cv.height / 2) / s, cam.y - (px - cv.width / 2) / s]; };
+const NICE = [0.5, 1, 2, 5, 10, 20, 50];
+function path(pts, close = true) { ctx.beginPath(); pts.forEach((p, i) => { const [a, b] = toPx(...p); i ? ctx.lineTo(a, b) : ctx.moveTo(a, b); }); if (close) ctx.closePath(); }
+const rectC = (c, f0, f1, l0, l1) => [[f0, l0], [f1, l0], [f1, l1], [f0, l1]].map(p => toBodyC(c, ...p));
+const wireColor = ref => { const [id, key] = ref.split("."); const c = comp(id), p = c && pinDef(c, key); if (!p) return colors.fg;
+  if (p.req === "vcc") return colors["w-vcc"]; if (p.req === "gnd") return colors["w-gnd"]; return colors[catColor(p.cat)] || colors.fg; };
+
+let wiring = null, hover = null, mouseBody = null, showWires = true;
+try { showWires = localStorage.getItem("irsim.wires") !== "0"; } catch (e) {}
+function setWires(on) {
+  showWires = on; const b = $("vWires"); b.classList.toggle("on", on); b.setAttribute("aria-pressed", on);
+  if (!on && sel?.kind === "wire") sel = null;
+  try { localStorage.setItem("irsim.wires", on ? "1" : "0"); } catch (e) {}
+  setMode(); draw();
+}
+// 선을 숨겨도 선택한 부품에 연결된 선은 보임
+const wireVisible = w => showWires || (sel?.kind === "comp" && [w.from, w.to].some(ep => ep.split(".")[0] === sel.id || (sel.id === "mega" && !ep.includes("."))));
+// 선 자동정렬: 차량 축에 맞춘 Z자 경로 (전후 → 좌우 → 전후), 부품별로 차선 간격을 둬서 겹침을 줄임
+function autoRoute() {
+  const groups = {};
+  S.wires.forEach(w => { const A = endPos(w.from), B = endPos(w.to); if (A && B) (groups[w.from.split(".")[0]] ||= []).push({ w, A, B }); });
+  const LANE = 0.22;                                       // 차선 간격 [cm]
+  for (const g of Object.values(groups)) {
+    const mids = g.map(o => (o.A[0] + o.B[0]) / 2).sort((a, b) => a - b), base = mids[Math.floor(mids.length / 2)];
+    const dir = Math.sign(g.reduce((s, o) => s + (o.B[0] - o.A[0]), 0)) || 1;
+    g.sort((a, b) => (a.A[1] - b.A[1]) * dir);               // 왼쪽 핀부터 차선 배정 → 교차 감소
+    g.forEach((o, i) => {
+      const { A, B } = o, lo = Math.min(A[0], B[0]) + 0.3, hi = Math.max(A[0], B[0]) - 0.3;
+      let lane = base + (i - (g.length - 1) / 2) * LANE;
+      if (lo < hi) lane = clamp(lane, lo, hi);
+      o.w.via = Math.abs(A[1] - B[1]) < 0.05 || Math.abs(A[0] - B[0]) < 0.05 ? [] : [[+lane.toFixed(2), +A[1].toFixed(2)], [+lane.toFixed(2), +B[1].toFixed(2)]];
+    });
+  }
+  changed(true);
+}
+function draw() {
+  if ($("pageVehicle").hidden) return;
+  resize();
+  const W = cv.width, H = cv.height, s = scale(), k = dpr();
+  if (!W) return;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = colors.field; ctx.fillRect(0, 0, W, H);
+  // 격자
+  const major = NICE.find(g => g * s >= 60 * k) ?? 50, minor = major / (major === 2 || major === 20 ? 4 : 5);
+  const [x0] = toBody(0, H), [x1] = toBody(0, 0), [, y0] = toBody(W, 0), [, y1] = toBody(0, 0);
+  const grid = (st, col, w) => { ctx.strokeStyle = col; ctx.lineWidth = w; ctx.beginPath();
+    for (let g = Math.ceil(x0 / st) * st; g <= x1; g += st) { const [, py] = toPx(g, 0); ctx.moveTo(0, py); ctx.lineTo(W, py); }
+    for (let g = Math.ceil(y0 / st) * st; g <= y1; g += st) { const [px] = toPx(0, g); ctx.moveTo(px, 0); ctx.lineTo(px, H); }
+    ctx.stroke(); };
+  if (minor * s > 4 * k) grid(minor, colors.grid, 0.6 * k);
+  grid(major, colors["grid-major"], k);
+  ctx.font = `${10.5 * k}px "IBM Plex Mono", ui-monospace, monospace`; ctx.fillStyle = colors.muted;
+  ctx.textBaseline = "bottom"; for (let g = Math.ceil(x0 / major) * major; g <= x1; g += major) { const [, py] = toPx(g, 0); ctx.fillText(`x ${+g.toFixed(1)}`, 4 * k, py - 2 * k); }
+  ctx.textBaseline = "top"; for (let g = Math.ceil(y0 / major) * major; g <= y1; g += major) { const [px] = toPx(0, g); ctx.fillText(`y ${+g.toFixed(1)}`, px + 3 * k, 4 * k); }
+  $("scaleOut").textContent = `화면 짧은 변 ${cam.span < 10 ? cam.span.toFixed(1) : cam.span.toFixed(0)} cm · 격자 ${major} cm`;
+
+  // 차체
+  const B = S.body, hw = B.W / 2, cw = hw - 2;
+  path([[-B.rear, cw], [B.L + B.front, cw], [B.L + B.front, -cw], [-B.rear, -cw]]);
+  ctx.globalAlpha = 0.12; ctx.fillStyle = colors.car; ctx.fill(); ctx.globalAlpha = 1; ctx.strokeStyle = colors.car; ctx.lineWidth = k; ctx.stroke();
+  ctx.beginPath(); for (const [p, q] of [[[0, hw], [0, -hw]], [[B.L, hw], [B.L, -hw]]]) { ctx.moveTo(...toPx(...p)); ctx.lineTo(...toPx(...q)); } ctx.stroke();
+  for (const [x, y, col] of [[0, hw, colors.car], [0, -hw, colors.car], [B.L, hw, colors.front], [B.L, -hw, colors.front]]) { path([[x - 3.25, y + 1.3], [x + 3.25, y + 1.3], [x + 3.25, y - 1.3], [x - 3.25, y - 1.3]]); ctx.fillStyle = col; ctx.fill(); }
+
+  // 초음파 빔
+  for (const c of S.comps) if (c.type === "us") {
+    ctx.beginPath(); ctx.moveTo(...toPx(c.x, c.y));
+    for (let t = -15; t <= 15; t += 1.5) { const a = (c.yaw + t) * D2R; ctx.lineTo(...toPx(c.x + 60 * Math.cos(a), c.y + 60 * Math.sin(a))); }
+    ctx.closePath(); ctx.fillStyle = colors.beam; ctx.fill(); ctx.strokeStyle = colors["beam-edge"]; ctx.lineWidth = k; ctx.setLineDash([4 * k, 4 * k]); ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  const label = (txt, pos, col, size = 10.5, align = "center") => { const [a, b] = toPx(...pos); ctx.font = `${size * k}px "IBM Plex Mono", monospace`; ctx.textAlign = align; ctx.textBaseline = "middle"; ctx.fillStyle = col; ctx.fillText(txt, a, b); };
+  const isSel = c => sel?.kind === "comp" && sel.id === c.id;
+
+  // Mega 보드
+  const mg = comp("mega");
+  if (mg) {
+    const ML = (x, y) => toBodyC(mg, ...megaL(x, y));
+    path([[0, 0], [MEGA_W, 0], [MEGA_W, MEGA_H], [0, MEGA_H]].map(p => ML(...p)));
+    ctx.fillStyle = colors.mega; ctx.fill(); ctx.strokeStyle = isSel(mg) ? colors.accent : colors["mega-edge"]; ctx.lineWidth = (isSel(mg) ? 2.5 : 1) * k; ctx.stroke();
+    // USB-B, DC 잭, ATmega2560
+    path([[-0.25, 1.26], [0.6, 1.26], [0.6, 1.74], [-0.25, 1.74]].map(p => ML(...p))); ctx.fillStyle = "#9aa3a7"; ctx.fill();
+    path([[-0.25, 0.13], [0.5, 0.13], [0.5, 0.48], [-0.25, 0.48]].map(p => ML(...p))); ctx.fillStyle = colors.header; ctx.fill();
+    const cx = 2.15, cy = 1.0, r = 0.39; path([[cx - r, cy], [cx, cy + r], [cx + r, cy], [cx, cy - r]].map(p => ML(...p))); ctx.fillStyle = colors.header; ctx.fill();
+    // 헤더 핀
+    {
+    const pr = Math.max(0.7, 1.0) / 10;            // 핀 반경 1 mm
+    for (const p of MEGA_PINS) {
+      const [a, b] = toPx(...megaPinPos(p)), rad = Math.max(1.6 * k, 1.1 * s / 10);
+      const used = V.users[p.n]?.length && p.kind === "io";
+      ctx.fillStyle = colors.header; ctx.fillRect(a - rad * 1.15, b - rad * 1.15, rad * 2.3, rad * 2.3);
+      ctx.beginPath(); ctx.arc(a, b, rad * 0.55, 0, 2 * Math.PI);
+      ctx.fillStyle = p.kind === "io" ? (V.badPins.has(p.n) ? colors.err : used ? colors.gold : "#c9a227") : p.kind === "5V" || p.kind === "3V3" ? colors["w-vcc"] : p.kind === "GND" ? "#888" : "#c9a227";
+      ctx.fill();
+    }
+    if (s > 30 * k) for (const p of MEGA_PINS) {           // 핀 이름 (확대 시)
+      // 글자는 헤더 줄과 수직 방향 (줄이 가로면 세로 글씨, 세로면 가로 글씨), 핀에서 바깥쪽 방향으로 읽힘
+      const top = p.y > 1.9 && p.x < 3.7, bot = p.y < 0.2, outer = p.x > 3.85;
+      const d = top ? [0, -1] : bot ? [0, 1] : outer ? [1, 0] : [-1, 0];          // 보드 좌표(inch) 라벨 방향
+      const g = 0.075, anchor = toPx(...toBodyC(mg, ...megaL(p.x + d[0] * g, p.y + d[1] * g)));
+      const tip2 = toPx(...toBodyC(mg, ...megaL(p.x + d[0] * (g + 0.1), p.y + d[1] * (g + 0.1))));
+      let ang = Math.atan2(tip2[1] - anchor[1], tip2[0] - anchor[0]), align = "left";
+      if (Math.abs(ang) > Math.PI / 2 + 1e-6) { ang += Math.PI; align = "right"; }      // 거꾸로 읽히지 않게 뒤집기
+      ctx.save(); ctx.translate(...anchor); ctx.rotate(ang);
+      ctx.font = `${Math.min(11, s / 10 * 1.5) * k}px "IBM Plex Mono", monospace`; ctx.textBaseline = "middle"; ctx.textAlign = align;
+      ctx.fillStyle = outer ? colors.fg : "#e8f4f8";                                   // 바깥 줄은 보드 밖에 글씨
+      ctx.fillText(p.alias || p.name, 0, 0); ctx.restore();
+    }
+    }
+    label("ARDUINO MEGA 2560", ML(1.45, 1.05), "#e8f4f8", Math.max(7, Math.min(13, s / 10 * 3)));
+  }
+
+  // 부품
+  for (const c of S.comps) {
+    const T = TYPES[c.type], selc = isSel(c);
+    if (c.type === "ir5" || c.type === "ir11") {
+      const M = IRMOD[c.type], tb = (x, y) => toBodyC(c, ...irL(x, y));
+      path(M.outline.map(p => tb(...p))); ctx.fillStyle = colors[M.pcb]; ctx.globalAlpha = 0.93; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.strokeStyle = selc ? colors.accent : colors[M.pcb + "-edge"]; ctx.lineWidth = (selc ? 2.5 : 1) * k; ctx.stroke();
+      for (const { cx, cy, n, pitch, depth } of Object.values(M.conn)) { const w = n * pitch + (pitch < 2 ? 3 : 0), h2 = depth / 2; path([[cx - w / 2, cy - h2], [cx + w / 2, cy - h2], [cx + w / 2, cy + h2], [cx - w / 2, cy + h2]].map(p => tb(...p))); ctx.fillStyle = M.connColor || colors.pad; ctx.fill(); }
+      for (const [hx, hy] of M.holes) { const [a, b] = toPx(...tb(hx, hy)); ctx.beginPath(); ctx.arc(a, b, Math.max(1.5 * k, (M.hole_d / 2 + 0.6) * s / 10), 0, 2 * Math.PI); ctx.fillStyle = colors.gold; ctx.fill(); }
+      for (const i of M.order) { const [x, y] = M.sensors[i], w = M.sw / 2, l = M.sl / 2;
+        path([[x - w, y - l], [x + w, y - l], [x + w, y + l], [x - w, y + l]].map(p => tb(...p))); ctx.fillStyle = colors.pad; ctx.fill();
+        if (s > 9 * k) label(String(i), tb(x, y + l + 4.5), colors.fg, 10); }
+      if (s > 14 * k) for (const { cx, cy, depth, name } of Object.values(M.conn)) label(name, tb(cx, cy + depth / 2 + 3), "#eef4fb", 8.5);
+    } else if (c.type === "us") {
+      ctx.strokeStyle = selc ? colors.accent : colors.us; ctx.lineWidth = (selc ? 3 : 2) * k;
+      ctx.beginPath(); ctx.moveTo(...toPx(...toBodyC(c, -13, 22.5))); ctx.lineTo(...toPx(...toBodyC(c, -13, -22.5))); ctx.stroke();
+      for (const l of [13, -13]) { path(rectC(c, -12, 0, l - 8, l + 8)); ctx.fillStyle = colors.us; ctx.fill(); }
+      label(compName(c), toBodyC(c, -24, 0), colors.us, 11);
+    } else if (T.box) {
+      const [[f0, f1], [l0, l1]] = T.box;
+      path(rectC(c, f0, f1, l0, l1)); ctx.fillStyle = colors.part; ctx.globalAlpha = 0.9; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.strokeStyle = selc ? colors.accent : colors["part-edge"]; ctx.lineWidth = (selc ? 2.5 : 1) * k; ctx.stroke();
+      label(T.short, toBodyC(c, 2, 0), "#fff", Math.max(8, Math.min(12, s / 10 * 3.2)));
+      if (c.type === "drive" || c.type === "steer" || c.type === "brake") { const [a, b] = toPx(...toBodyC(c, f1 * 0.45, 0)); ctx.beginPath(); ctx.arc(a, b, Math.max(2 * k, 0.35 * s), 0, 2 * Math.PI); ctx.fillStyle = colors["part-edge"]; ctx.fill(); }
+    }
+    // 부품 핀
+    for (const p of compPins(c)) {
+      const [a, b] = toPx(...compPinPos(c, p)), st = V.pinState[`${c.id}.${p.key}`];
+      const rad = Math.max(1.6 * k, Math.min(0.9, (p.pitch || 2.54) * 0.38) * s / 10);
+      ctx.beginPath(); ctx.arc(a, b, rad, 0, 2 * Math.PI);
+      ctx.fillStyle = p.req === "vcc" ? colors["w-vcc"] : p.req === "gnd" ? colors["w-gnd"] : colors[catColor(p.cat)] || colors.fg; ctx.fill();
+      if (st === "error" || st === "warn") { ctx.strokeStyle = st === "error" ? colors.err : colors.warn; ctx.lineWidth = 1.5 * k; ctx.stroke(); }
+    }
+  }
+
+  // 배선
+  const drawWire = (pts, col, w) => { ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineJoin = "round"; ctx.lineCap = "round"; path(pts, false); ctx.stroke(); };
+  S.wires.forEach((wr, i) => { if (!wireVisible(wr)) return; const a = endPos(wr.from), b = endPos(wr.to); if (!a || !b) return;
+    const pts = [a, ...wr.via, b], selw = sel?.kind === "wire" && sel.i === i;
+    if (selw) drawWire(pts, colors.accent, 5 * k);
+    drawWire(pts, wireColor(wr.from), (selw ? 2.5 : 1.8) * k);
+    for (const end of [a, b]) { const [x, y] = toPx(...end); ctx.beginPath(); ctx.arc(x, y, 2.2 * k, 0, 2 * Math.PI); ctx.fillStyle = wireColor(wr.from); ctx.fill(); } });
+  if (wiring && mouseBody) {
+    const start = endPos(wiring.from); const end = hover ? endPos(hover.ep) : mouseBody;
+    ctx.setLineDash([6 * k, 4 * k]); drawWire([start, ...wiring.via, end], colors.accent, 2 * k); ctx.setLineDash([]);
+  }
+  if (hover) { const [a, b] = toPx(...endPos(hover.ep)); ctx.beginPath(); ctx.arc(a, b, Math.max(5 * k, 1.6 * s / 10), 0, 2 * Math.PI); ctx.strokeStyle = colors.accent; ctx.lineWidth = 2 * k; ctx.stroke(); }
+
+  // 회전 핸들 (선택한 부품, Mega 포함)
+  const hc = sel?.kind === "comp" && comp(sel.id);
+  if (hc) { const H = handle(hc), [ox, oy] = toPx(hc.x, hc.y), [hx, hy] = toPx(...H.pos);
+    if (rot && rot.id === hc.id) {                       // 회전 시작 방향 ~ 현재 방향 호
+      const r = Math.hypot(hx - ox, hy - oy), a0 = -(rot.startYaw * D2R) - Math.PI / 2, a1 = -(hc.yaw * D2R) - Math.PI / 2;
+      ctx.strokeStyle = colors.accent; ctx.lineWidth = 1.5 * k; ctx.setLineDash([4 * k, 3 * k]);
+      ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(ox + r * Math.cos(a0), oy + r * Math.sin(a0)); ctx.stroke();
+      ctx.beginPath(); ctx.arc(ox, oy, r, a0, a1, hc.yaw > rot.startYaw); ctx.stroke(); ctx.setLineDash([]);
+    }
+    ctx.strokeStyle = colors.accent; ctx.lineWidth = 1.5 * k; ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(hx, hy); ctx.stroke();
+    ctx.beginPath(); ctx.arc(hx, hy, 7 * k, 0, 2 * Math.PI); ctx.fillStyle = colors.panel; ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(hx, hy, 3.5 * k, -Math.PI * 0.9, Math.PI * 0.5); ctx.stroke();
+    ctx.beginPath(); ctx.arc(ox, oy, 2.5 * k, 0, 2 * Math.PI); ctx.fillStyle = colors.accent; ctx.fill();
+  }
+  // 원점·축
+  const [ox, oy] = toPx(0, 0);
+  ctx.strokeStyle = colors.accent; ctx.fillStyle = colors.accent; ctx.lineWidth = 1.5 * k;
+  const arrow = (dx, dy, t) => { const ex = ox + dx * 40 * k, ey = oy + dy * 40 * k; ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(ex, ey); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(ex - dx * 7 * k + dy * 4 * k, ey - dy * 7 * k + dx * 4 * k); ctx.lineTo(ex - dx * 7 * k - dy * 4 * k, ey - dy * 7 * k - dx * 4 * k); ctx.closePath(); ctx.fill();
+    ctx.font = `${11 * k}px "IBM Plex Mono", monospace`; ctx.textAlign = "left"; ctx.textBaseline = "alphabetic"; ctx.fillText(t, ex + (dx ? -14 * k : 5 * k), ey + (dy ? 0 : 14 * k)); };
+  arrow(0, -1, "x"); arrow(-1, 0, "y");
+  ctx.beginPath(); ctx.arc(ox, oy, 3.5 * k, 0, 2 * Math.PI); ctx.fill();
+  ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+}
+
+// ================= 히트 테스트 =================
+const canvasPt = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * cv.width / r.width, (e.clientY - r.top) * cv.height / r.height]; };
+function inPoly(pt, pts) { let c = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const [xi, yi] = pts[i], [xj, yj] = pts[j]; if ((yi > pt[1]) !== (yj > pt[1]) && pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi) c = !c; } return c; }
+function hitPin(px, py) {             // 가장 가까운 핀 (부품 핀 또는 Mega 핀), 허용 반경 px
+  const tol = Math.max(8 * dpr(), 1.4 * scale() / 10); let best = null, bd = tol;
+  const test = (pos, ep, label) => { const [a, b] = toPx(...pos), d = Math.hypot(a - px, b - py); if (d < bd) { bd = d; best = { ep, label }; } };
+  for (const c of S.comps) for (const p of compPins(c)) test(compPinPos(c, p), `${c.id}.${p.key}`, `${compName(c)} · ${p.label}`);
+  if (comp("mega")) for (const p of MEGA_PINS) test(megaPinPos(p), p.id, `Mega ${p.alias ? p.alias + " (" + p.name + ")" : p.name}${p.kind === "io" && pinTags(p.n).length ? " · " + pinTags(p.n).join(" · ") : ""}`);
+  return best;
+}
+function compShape(c) {
+  const T = TYPES[c.type];
+  if (c.type === "mega") return [[0, 0], [MEGA_W, 0], [MEGA_W, MEGA_H], [0, MEGA_H]].map(p => megaL(...p));
+  if (c.type === "ir5" || c.type === "ir11") return IRMOD[c.type].outline.map(p => irL(...p));
+  if (c.type === "us") return [[-18, -24], [2, -24], [2, 24], [-18, 24]];
+  const [[f0, f1], [l0, l1]] = T.box; return [[f0, l0], [f1, l0], [f1, l1], [f0, l1]];
+}
+function hitComp(bx, by) {
+  const order = [...S.comps].reverse().sort((a, b) => (a.type === "mega") - (b.type === "mega"));   // Mega는 맨 아래
+  for (const c of order) if (inPoly(fromBodyC(c, bx, by), compShape(c))) return c;
+  return null;
+}
+function hitWire(px, py) {
+  const tol = 5 * dpr();
+  for (let i = S.wires.length - 1; i >= 0; i--) { const w = S.wires[i], a = endPos(w.from), b = endPos(w.to); if (!a || !b || !wireVisible(w)) continue;
+    const pts = [a, ...w.via, b].map(p => toPx(...p));
+    for (let j = 1; j < pts.length; j++) { const [x1, y1] = pts[j - 1], [x2, y2] = pts[j], L2 = (x2 - x1) ** 2 + (y2 - y1) ** 2;
+      const t = L2 ? clamp(((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / L2, 0, 1) : 0;
+      if (Math.hypot(px - x1 - t * (x2 - x1), py - y1 - t * (y2 - y1)) < tol) return i; } }
+  return -1;
+}
+
+// ================= 포인터 =================
+let down = null;
+const isComp = ep => ep.includes(".");
+function setMode(note) {
+  $("modeOut").innerHTML = (note ? `<span style="color:var(--warn)">${note}.</span> ` : "") + (wiring ? `<span class="wiring">배선 중: ${wiring.label} → 연결할 핀 클릭 (빈 곳 = 꺾는 점, Esc = 취소)</span>` : "부품 핀(●)을 클릭 → Mega 핀을 클릭해 연결. 빈 곳 클릭 = 꺾는 점.");
+}
+function finishWire(ep) {
+  const a = wiring.from, flip = !isComp(a);                   // from = 항상 부품 핀
+  const from = flip ? ep : a, to = flip ? a : ep, via = flip ? [...wiring.via].reverse() : wiring.via;
+  // 신호·모터 핀은 선 하나 (새 선으로 교체), 전원 핀(VCC/GND)과 Mega 핀은 여러 선 허용
+  for (const end of [from, to]) { const i = epInfo(end); if (!i.mega && !isPwr(i.req)) S.wires = S.wires.filter(w => w.from !== end && w.to !== end); }
+  S.wires = S.wires.filter(w => !((w.from === from && w.to === to) || (w.from === to && w.to === from)));
+  S.wires.push({ from, to, via });
+  wiring = null; sel = { kind: "wire", i: S.wires.length - 1 }; setMode(); changed(true);
+}
+// 회전 핸들: 부품 원점에서 부품 전방(yaw 방향)으로, 외곽 바로 바깥
+function handle(c) {
+  const fmax = Math.max(0, ...compShape(c).map(p => p[0])) / 10;                  // 부품 앞쪽 끝 [cm]
+  const r = fmax + 22 * dpr() / scale(), a = c.yaw * D2R;
+  return { pos: [c.x + r * Math.cos(a), c.y + r * Math.sin(a)], r };
+}
+let rot = null;                                        // {id, startYaw, startAng}
+const angTo = (c, b) => Math.atan2(b[1] - c.y, b[0] - c.x) / D2R;
+function showTip(e, text) { const r = cv.getBoundingClientRect(), tip = $("tip"); tip.hidden = false; tip.textContent = text; tip.style.left = (e.clientX - r.left) + "px"; tip.style.top = (e.clientY - r.top) + "px"; }
+cv.addEventListener("pointerdown", e => {
+  if (e.button === 2) return;
+  cv.setPointerCapture(e.pointerId);
+  const [px, py] = canvasPt(e), [bx, by] = toBody(px, py);
+  if (e.button === 1) { e.preventDefault(); down = { px, py, moved: true, pan: true }; cv.style.cursor = "grabbing"; return; }   // 휠 클릭 = 시점 이동만
+  const hc = !wiring && sel?.kind === "comp" && comp(sel.id);
+  if (hc) { const [hx, hy] = toPx(...handle(hc).pos);
+    if (Math.hypot(px - hx, py - hy) < 10 * dpr()) { rot = { id: hc.id, startYaw: hc.yaw, startAng: angTo(hc, [bx, by]) }; down = { rot: true }; showTip(e, `+0° · yaw ${hc.yaw}°`); draw(); return; } }
+  const pin = hitPin(px, py), c = pin ? null : hitComp(bx, by);
+  down = { px, py, moved: false, pin, comp: !wiring && c && c.id, off: c ? [c.x - bx, c.y - by] : null };
+});
+cv.addEventListener("pointermove", e => {
+  const [px, py] = canvasPt(e); mouseBody = toBody(px, py);
+  if (down?.rot) {
+    const c = comp(rot.id); let d = angTo(c, mouseBody) - rot.startAng; d = ((d + 540) % 360) - 180;
+    const yaw = Math.round((rot.startYaw + d) / 5) * 5;                  // 5° 단위 (절대각 기준)
+    c.yaw = norm(yaw); let dd = norm(c.yaw - rot.startYaw);
+    showTip(e, `${dd > 0 ? "+" : ""}${dd}° · yaw ${c.yaw}°`); cv.style.cursor = "grabbing"; changed(false); return;
+  }
+  if (down) {
+    if (!down.moved && Math.hypot(px - down.px, py - down.py) > 4 * dpr()) down.moved = true;
+    if (down.moved) {
+      if (down.comp && !down.pan) { const c = comp(down.comp); if (sel?.id !== c.id) { sel = { kind: "comp", id: c.id }; buildSel(); }
+        c.x = Math.round((mouseBody[0] + down.off[0]) * 2) / 2; c.y = Math.round((mouseBody[1] + down.off[1]) * 2) / 2; changed(false); }
+      else { const s = scale(); cam.x += (py - down.py) / s; cam.y += (px - down.px) / s; down.px = px; down.py = py; draw(); }
+      return;
+    }
+  }
+  const h = hitPin(px, py);
+  hover = h && (!wiring || canConnect(wiring.from, h.ep).ok) ? h : null;
+  const tip = $("tip");
+  if (h) { const r = cv.getBoundingClientRect(); tip.hidden = false; tip.textContent = h.label; tip.style.left = (e.clientX - r.left) + "px"; tip.style.top = (e.clientY - r.top) + "px"; } else tip.hidden = true;
+  const hc = !wiring && sel?.kind === "comp" && comp(sel.id), overH = hc && (() => { const [hx, hy] = toPx(...handle(hc).pos); return Math.hypot(px - hx, py - hy) < 10 * dpr(); })();
+  if (overH && !h) showTip(e, `드래그해서 회전 · yaw ${hc.yaw}°`);
+  cv.style.cursor = overH ? "grab" : h ? "pointer" : wiring ? "crosshair" : hitComp(...mouseBody) ? "move" : "default";
+  draw();
+});
+cv.addEventListener("pointerup", e => {
+  const d = down; down = null; if (!d) return;
+  if (d.rot) { rot = null; $("tip").hidden = true; changed(true); return; }
+  if (d.pan) { cv.style.cursor = "default"; return; }
+  if (d.moved) { if (d.comp) changed(true); return; }
+  const [px, py] = canvasPt(e), [bx, by] = toBody(px, py);
+  if (wiring) {
+    if (d.pin) {
+      if (d.pin.ep === wiring.from) { wiring = null; setMode(); draw(); return; }
+      const cc = canConnect(wiring.from, d.pin.ep);
+      if (cc.ok) { finishWire(d.pin.ep); return; }
+      wiring = { from: d.pin.ep, label: d.pin.label, via: [] }; setMode(cc.msg); draw(); return;   // 연결 불가 → 그 핀에서 다시 시작
+    }
+    wiring.via.push([Math.round(bx * 4) / 4, Math.round(by * 4) / 4]); draw(); return;
+  }
+  if (d.pin) { wiring = { from: d.pin.ep, label: d.pin.label, via: [] }; setMode(); draw(); return; }
+  const c = hitComp(bx, by);
+  if (c) { sel = { kind: "comp", id: c.id }; changed(true); return; }
+  const wi = hitWire(px, py);
+  sel = wi >= 0 ? { kind: "wire", i: wi } : null; changed(true);
+});
+cv.addEventListener("mousedown", e => { if (e.button === 1) e.preventDefault(); });   // 브라우저 자동 스크롤 막기
+cv.addEventListener("auxclick", e => { if (e.button === 1) e.preventDefault(); });
+cv.addEventListener("pointerleave", () => { hover = null; $("tip").hidden = true; draw(); });
+cv.addEventListener("contextmenu", e => { if (wiring) { e.preventDefault(); wiring = null; setMode(); draw(); } });
+cv.addEventListener("wheel", e => { e.preventDefault(); const [px, py] = canvasPt(e), [bx, by] = toBody(px, py);
+  cam.span = clamp(cam.span * Math.exp((e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY) * 0.0015), 3, 300);
+  const [bx2, by2] = toBody(px, py); cam.x += bx - bx2; cam.y += by - by2; draw(); }, { passive: false });
+window.addEventListener("keydown", e => {
+  if (["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName) || $("pageVehicle").hidden) return;
+  if (e.key === "Escape") { if (wiring) { wiring = null; setMode(); } else sel = null; changed(true); }
+  else if ((e.key === "Delete" || e.key === "Backspace") && sel) { e.preventDefault(); sel.kind === "wire" ? removeWire(sel.i) : removeComp(sel.id); }
+  else if (e.key === "w" || e.key === "W") setWires(!showWires);
+  else if ((e.key === "r" || e.key === "R") && sel?.kind === "comp") { const c = comp(sel.id); c.yaw = norm(c.yaw + (e.shiftKey ? -5 : 5)); changed(true); }
+});
+function fit() {
+  const pts = [[-S.body.rear, S.body.W / 2], [S.body.L + S.body.front, -S.body.W / 2]];
+  for (const c of S.comps) compShape(c).forEach(p => pts.push(toBodyC(c, ...p)));
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]), r = cv.width / Math.max(cv.height, 1);
+  cam.x = (Math.min(...xs) + Math.max(...xs)) / 2; cam.y = (Math.min(...ys) + Math.max(...ys)) / 2;
+  const ex = Math.max(...xs) - Math.min(...xs), ey = Math.max(...ys) - Math.min(...ys);
+  cam.span = clamp((r < 1 ? Math.max(ex * r, ey) : Math.max(ex, ey / r)) * 1.18, 5, 300);
+  draw();
+}
+const zoomMega = () => { const m = comp("mega"); if (!m) return; cam.x = m.x; cam.y = m.y; cam.span = 13; draw(); };
+$("autoPins").onclick = applySchematic;
+$("vWires").onclick = () => setWires(!showWires);
+$("vRoute").onclick = autoRoute;
+$("vStraight").onclick = () => { S.wires.forEach(w => w.via = []); changed(true); };
+$("vFit").onclick = fit; $("vMega").onclick = zoomMega;
+$("vIn").onclick = () => { cam.span = clamp(cam.span / 1.4, 3, 300); draw(); }; $("vOut").onclick = () => { cam.span = clamp(cam.span * 1.4, 3, 300); draw(); };
+new ResizeObserver(() => draw()).observe(cv);
+
+// ---- 팔레트 드래그 ----
+let ghost = null;
+function paletteDown(e) {
+  const type = e.currentTarget.dataset.type, sx = e.clientX, sy = e.clientY; let moved = false;
+  e.preventDefault();
+  const move = ev => {
+    if (!moved && Math.hypot(ev.clientX - sx, ev.clientY - sy) > 5) { moved = true; ghost = document.createElement("div"); ghost.className = "ghost"; ghost.textContent = TYPES[type].name; document.body.appendChild(ghost); }
+    if (ghost) { ghost.style.left = ev.clientX + "px"; ghost.style.top = ev.clientY + "px";
+      const r = cv.getBoundingClientRect(); cv.classList.toggle("drop", ev.clientX > r.left && ev.clientX < r.right && ev.clientY > r.top && ev.clientY < r.bottom); }
+  };
+  const up = ev => {
+    window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up);
+    cv.classList.remove("drop"); if (ghost) { ghost.remove(); ghost = null; }
+    if (!moved) { addComp(type); return; }
+    const r = cv.getBoundingClientRect();
+    if (ev.clientX > r.left && ev.clientX < r.right && ev.clientY > r.top && ev.clientY < r.bottom) addComp(type, toBody((ev.clientX - r.left) * cv.width / r.width, (ev.clientY - r.top) * cv.height / r.height));
+  };
+  window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+}
+
+// ================= 저장 / 불러오기 =================
+const ioMsg = t => { $("ioMsg").textContent = t; };
+$("ioShow").onclick = () => { const t = $("ioText"); t.hidden = !t.hidden; $("ioShow").classList.toggle("on", !t.hidden); if (!t.hidden) t.value = JSON.stringify(toJSON(), null, 2); };
+$("ioCopy").onclick = () => { const txt = JSON.stringify(toJSON(), null, 2), t = $("ioText");
+  const fallback = () => { t.hidden = false; $("ioShow").classList.add("on"); t.value = txt; t.select(); ioMsg("복사 권한이 없어 텍스트를 선택해 두었습니다. Ctrl+C로 복사하세요."); };
+  try { navigator.clipboard.writeText(txt).then(() => ioMsg("JSON을 클립보드에 복사했습니다."), fallback); } catch (e) { fallback(); } };
+const applyText = txt => { try { S = fromJSON(JSON.parse(txt)); sel = null; wiring = null; buildBody(); changed(true); fit(); ioMsg("설정을 불러왔습니다."); } catch (e) { ioMsg("불러오기 실패: " + e.message); } };
+$("ioApply").onclick = () => { const t = $("ioText"); if (t.hidden || !t.value.trim()) { t.hidden = false; t.value = ""; t.focus(); $("ioShow").classList.add("on"); ioMsg("아래 칸에 JSON을 붙여넣고 다시 누르세요."); return; } applyText(t.value); };
+$("ioFile").onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => applyText(r.result); r.readAsText(f); e.target.value = ""; };
+let resetArm = 0;
+$("ioReset").onclick = () => { if (Date.now() - resetArm > 3000) { resetArm = Date.now(); ioMsg("기본값(앞 11ch · 뒤 5ch, 센서는 회로도 배선)으로 되돌리려면 3초 안에 한 번 더 누르세요."); return; } makeDefault(); sel = null; buildBody(); changed(true); fit(); ioMsg("기본값으로 되돌렸습니다."); };
+
+const countsPerCm = P => P.ppr * 4 * P.gear / (Math.PI * P.wheelD);
+
+// ================= 탭 전환 =================
+function showTab(t) {
+  const v = t !== "sim";
+  $("pageVehicle").hidden = !v; $("pageSim").hidden = v;
+  $("tabVehicle").setAttribute("aria-selected", v); $("tabSim").setAttribute("aria-selected", !v);
+  if (v) requestAnimationFrame(() => { resize(); draw(); });
+  else { if (editingCar) { endLayoutEdit(true); return; } requestAnimationFrame(() => { simResize(); if (!scv._fitted && MAPS.length) { scv._fitted = true; fitSim(); } drawSim(); if (cm) cm.refresh(); }); }
+  try { localStorage.setItem("irsim.tab", t); } catch (e) {}
+}
+$("tabVehicle").onclick = () => showTab("vehicle"); $("tabSim").onclick = () => showTab("sim");
+
+// ======================================================================
+// 탭 2: 시뮬레이션 — 차량마다 별도 워커(car-worker.js: Mega 에뮬레이션 + 차량 모델 + 센서)
+// 메인은 맵·차량 위치 공유·충돌·그리기·UI 담당. 단위 cm, yaw rad (월드: x 오른쪽, y 위)
+// ======================================================================
+const SIM_STORE = "irsim.sim.v1", MAX_CARS = 4;
+const CAR_COLORS = ["car1", "car2", "car3", "car4"];
+const SAMPLE_CODE = `// 샘플: IR 11ch(아날로그 A0~A10) 가중평균 + 비례 조향 라인트레이서
+// 탭 1 기본 배선 기준: 조향 서보 D9, 모터 PWM D6 / DIR D7 (HIGH = 후진)
+// 흰 바닥 + 검은 선 코스(N1~N5)용. 검은 바닥 + 흰 선 코스에서는 LINE_IS_DARK를 0으로.
+#include <Servo.h>
+
+#define LINE_IS_DARK 1
+const int STEER_PIN = 9, PWM_PIN = 6, DIR_PIN = 7;
+const int NEUTRAL = 110, S_MIN = 75, S_MAX = 145;
+const int BASE_PWM = 70;          // 약 50 cm/s
+const float KP = 0.30;            // 서보° / mm
+
+// 센서 번호 0~10 → A0~A10, 좌우 위치 [mm, 오른쪽 +] (0 중앙, 홀수 왼쪽, 짝수 오른쪽)
+const float SX[11] = {0, -12.5, 12.5, -37.5, 37.5, -62.5, 62.5, -87.5, 87.5, -112.5, 112.5};
+
+Servo steer;
+float lastErr = 0;
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(DIR_PIN, OUTPUT);
+  steer.attach(STEER_PIN);
+  steer.write(NEUTRAL);
+  Serial.println("LINE TRACER READY");
+}
+
+void loop() {
+  long sum = 0; float wsum = 0;
+  for (int i = 0; i < 11; i++) {
+    int raw = analogRead(A0 + i);
+    int s = LINE_IS_DARK ? 1023 - raw : raw;   // 선일수록 큰 값
+    if (s < 300) s = 0;
+    sum += s; wsum += SX[i] * s;
+  }
+  float err = sum > 200 ? wsum / sum : lastErr;  // 선을 놓치면 마지막 방향 유지
+  lastErr = err;
+
+  int angle = constrain(NEUTRAL + (int)(KP * err), S_MIN, S_MAX);
+  steer.write(angle);
+  digitalWrite(DIR_PIN, LOW);
+  analogWrite(PWM_PIN, BASE_PWM);
+
+  static unsigned long t0 = 0;
+  if (millis() - t0 >= 200) {
+    t0 = millis();
+    Serial.print("err="); Serial.print(err, 1);
+    Serial.print(" servo="); Serial.println(angle);
+  }
+}
+`;
+const SAMPLE_PID = `// ================================================================
+// 라인트레이서 PID 샘플: 앞 IR 11ch + 뒤 IR 5ch, 조향 PID + 속도 PID, 가변 속도
+// (시뮬레이터 탭 1 기본 배치·배선 기준)
+//
+// 핀 배치:
+//   조향 서보   → D9  (Servo, 중립 110°, 범위 75~145°, 각도↑ = 우회전)
+//   구동 PWM    → D6  (analogWrite)
+//   구동 DIR    → D7  (LOW = 전진, HIGH = 후진)
+//   엔코더 A/B  → D2 (INT4) / D3 (INT5), CHANGE 인터럽트 4체배
+//   앞 IR 11ch  → A0~A10 (센서 0~10, 0번 중앙 · 홀수 왼쪽 · 짝수 오른쪽)
+//   뒤 IR 5ch   → A11~A15 (센서 1~5, 모듈을 뒤로 돌려 달아서 1번이 차의 오른쪽)
+//
+// 제어 구조 (10 ms 주기):
+//   1) 앞 11ch 가중평균 → eF [mm, 오른쪽 +]
+//      뒤 5ch 가중평균  → eR [mm, 오른쪽 +]
+//   2) 차체 방향 오차 head = atan2(eF − eR, 앞뒤 센서 간격) [deg]
+//      → 선이 차체와 얼마나 비스듬한지 (곡선 진입·출구 판단)
+//   3) 조향 PID: 보정 = Kp·eF + Kh·head + Ki·∫eF + Kd·d(eF)/dt
+//   4) 목표 속도: 직선(작은 |eF|·|head|)은 V_MAX, 곡선은 V_MIN 쪽으로 감속
+//                 선을 놓치면 V_LOST로 줄이고 마지막 방향으로 최대 조향
+//   5) 속도 PID: 엔코더 속도 → PWM = 피드포워드 + Kp·e + Ki·∫e
+//
+// 시리얼 (115200, 100 ms 주기):
+//   eF=<mm> eR=<mm> hd=<deg> sv=<servo> vr=<cm/s> v=<cm/s> pwm=<0~255>
+//
+// 게인은 시뮬레이터 기본 파라미터(PWM 255 = 200 cm/s 등)에서 잡은 값.
+// 실차에서는 다시 튜닝해야 함.
+// ================================================================
+
+#include <Servo.h>
+
+// --- 핀 ---
+const int STEER_PIN = 9;
+const int PWM_PIN   = 6;
+const int DIR_PIN   = 7;
+const int ENC_A     = 2;
+const int ENC_B     = 3;
+
+// --- 조향 ---
+const int STEER_NEUTRAL = 110;
+const int STEER_MIN     = 75;
+const int STEER_MAX     = 145;
+
+// --- 라인 센서 ---
+#define LINE_IS_DARK 1            // 흰 바닥 + 검은 선. 반대 코스면 0
+// 앞 11ch: 센서 번호 0~10의 좌우 위치 [mm, 오른쪽 +]
+const float FRONT_X[11] = {0, -12.5, 12.5, -37.5, 37.5, -62.5, 62.5, -87.5, 87.5, -112.5, 112.5};
+// 뒤 5ch: A11~A15 = 센서 1~5. 뒤를 향해 달려 있어 1번이 차의 오른쪽
+const float REAR_X[5]   = {47.0, 18.0, 0.0, -18.0, -47.0};
+const float SENSOR_GAP  = 380.0;  // 앞 센서열 ~ 뒤 센서열 거리 [mm]
+const int   IR_ACTIVE_MIN = 250;  // (선 강도) 이 값 미만은 0으로 (바닥 얼룩·노이즈 컷)
+const int   SUM_MIN       = 300;  // 강도 합이 이보다 작으면 미감지
+
+// --- 조향 PID (보정 단위 = 서보 각도°) ---
+float Kp_s = 0.32;                // °/mm
+float Kh_s = 0.9;                 // °/deg (방향 오차)
+float Ki_s = 0.0;                 // °/(mm·s)  적분은 기본 꺼 둠 (트림 오차가 크면 0.05~0.2)
+float Kd_s = 0.012;               // °/(mm/s)
+const float I_LIMIT_S = 60.0;     // 적분 상한 [mm·s]
+
+// --- 속도 PID (보정 단위 = PWM) ---
+const float V_MAX  = 140.0;       // 직선 목표 속도 [cm/s]
+const float V_MIN  = 70.0;        // 곡선 목표 속도 [cm/s]
+const float V_LOST = 40.0;        // 선 놓쳤을 때 [cm/s]
+const float ACCEL  = 250.0;       // 목표 속도 증가 한계 [cm/s²] (감속은 즉시)
+float Kp_v = 0.8;                 // PWM/(cm/s)
+float Ki_v = 2.0;                 // PWM/(cm/s·s)
+const float FF_V  = 255.0 / 200.0;// 피드포워드 PWM/(cm/s)  (PWM 255 ≈ 200 cm/s)
+const float PWM_DB = 10;          // 모터 드라이버 데드밴드
+const float I_LIMIT_V = 60.0;     // 속도 적분 상한 [PWM]
+
+// --- 엔코더 ---
+const float COUNTS_PER_CM = 11.0 * 4 * 8 / (3.14159 * 6.5);   // 11 PPR × 4체배 × 기어비 8 / 바퀴 둘레
+volatile long encCount = 0;
+volatile uint8_t prevAB = 0;
+
+// --- 상태 ---
+Servo steer;
+const unsigned long CTRL_MS = 10;
+unsigned long lastCtrl = 0, lastLog = 0;
+float eF = 0, eR = 0, head = 0;
+float eFPrev = 0, iSteer = 0;
+float vRef = 0, vMeas = 0, iSpeed = 0;
+long  encPrev = 0;
+int   servoOut = STEER_NEUTRAL, pwmOut = 0;
+bool  frontSeen = false, rearSeen = false;
+float lastSide = 0;               // 마지막으로 선이 있던 쪽 (오른쪽 +)
+
+// ================================================================
+void encISR() {                   // A·B 양 엣지, 상태표로 ±1
+  static const int8_t T[16] = {0, -1, 1, 0, 1, 0, 0, -1, -1, 0, 0, 1, 0, 1, -1, 0};
+  uint8_t ab = (digitalRead(ENC_A) << 1) | digitalRead(ENC_B);
+  encCount += T[(prevAB << 2) | ab];
+  prevAB = ab;
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(DIR_PIN, OUTPUT);
+  digitalWrite(DIR_PIN, LOW);
+  analogWrite(PWM_PIN, 0);
+
+  pinMode(ENC_A, INPUT_PULLUP);
+  pinMode(ENC_B, INPUT_PULLUP);
+  prevAB = (digitalRead(ENC_A) << 1) | digitalRead(ENC_B);
+  attachInterrupt(digitalPinToInterrupt(ENC_A), encISR, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENC_B), encISR, CHANGE);
+
+  steer.attach(STEER_PIN);
+  steer.write(STEER_NEUTRAL);
+
+  delay(300);
+  Serial.println("PID DUAL READY");
+  lastCtrl = millis();
+}
+
+void loop() {
+  unsigned long now = millis();
+  if (now - lastCtrl >= CTRL_MS) {
+    float dt = (now - lastCtrl) / 1000.0;
+    lastCtrl = now;
+    readLines();
+    steeringControl(dt);
+    speedControl(dt);
+  }
+  if (now - lastLog >= 100) {
+    lastLog = now;
+    Serial.print("eF="); Serial.print(eF, 1);
+    Serial.print(" eR="); Serial.print(eR, 1);
+    Serial.print(" hd="); Serial.print(head, 1);
+    Serial.print(" sv="); Serial.print(servoOut);
+    Serial.print(" vr="); Serial.print(vRef, 0);
+    Serial.print(" v="); Serial.print(vMeas, 0);
+    Serial.print(" pwm="); Serial.println(pwmOut);
+  }
+}
+
+// ================================================================
+// 1) 센서 → 선 위치 (가중평균)
+// ================================================================
+int lineStrength(int pin) {
+  int raw = analogRead(pin);
+  int s = LINE_IS_DARK ? 1023 - raw : raw;     // 선일수록 큰 값
+  return s < IR_ACTIVE_MIN ? 0 : s;
+}
+
+void readLines() {
+  long sum = 0; float wsum = 0;
+  for (int i = 0; i < 11; i++) { int s = lineStrength(A0 + i); sum += s; wsum += FRONT_X[i] * s; }
+  frontSeen = sum >= SUM_MIN;
+  if (frontSeen) { eF = wsum / sum; lastSide = eF; }
+
+  sum = 0; wsum = 0;
+  for (int i = 0; i < 5; i++) { int s = lineStrength(A11 + i); sum += s; wsum += REAR_X[i] * s; }
+  rearSeen = sum >= SUM_MIN;
+  if (rearSeen) eR = wsum / sum;
+
+  // 앞·뒤 모두 보일 때만 방향 오차 갱신
+  if (frontSeen && rearSeen) head = atan2(eF - eR, SENSOR_GAP) * 57.2958;
+}
+
+// ================================================================
+// 2) 조향 PID
+// ================================================================
+void steeringControl(float dt) {
+  float corr;
+  if (frontSeen) {
+    float dE = (eF - eFPrev) / dt;
+    if (Ki_s != 0) iSteer = constrain(iSteer + eF * dt, -I_LIMIT_S, I_LIMIT_S);
+    corr = Kp_s * eF + Kh_s * head + Ki_s * iSteer + Kd_s * dE;
+    eFPrev = eF;
+  } else {
+    // 선을 놓침: 마지막으로 본 쪽으로 최대 조향, 미분·적분 정지
+    corr = lastSide >= 0 ? (STEER_MAX - STEER_NEUTRAL) : (STEER_MIN - STEER_NEUTRAL);
+  }
+  servoOut = constrain(STEER_NEUTRAL + (int)corr, STEER_MIN, STEER_MAX);
+  steer.write(servoOut);
+}
+
+// ================================================================
+// 3) 가변 목표 속도 + 속도 PID
+// ================================================================
+void speedControl(float dt) {
+  // 엔코더 속도 (1차 저역통과)
+  noInterrupts(); long c = encCount; interrupts();
+  float v = (c - encPrev) / COUNTS_PER_CM / dt;
+  encPrev = c;
+  vMeas += 0.3 * (v - vMeas);
+
+  // 곡선 정도: 앞 센서 위치와 방향 오차를 0~1로
+  float bend = max(fabs(eF) / 60.0, fabs(head) / 12.0);
+  if (bend > 1) bend = 1;
+  float target = frontSeen ? V_MAX - (V_MAX - V_MIN) * bend : V_LOST;
+  // 가속은 천천히, 감속은 즉시
+  if (target > vRef) vRef = min(target, vRef + ACCEL * dt); else vRef = target;
+
+  float e = vRef - vMeas;
+  iSpeed = constrain(iSpeed + Ki_v * e * dt, -I_LIMIT_V, I_LIMIT_V);
+  float u = (vRef > 1 ? PWM_DB + FF_V * vRef * (255 - PWM_DB) / 255.0 : 0) + Kp_v * e + iSpeed;
+  pwmOut = constrain((int)u, 0, 255);       // 이 샘플은 후진 안 씀
+  digitalWrite(DIR_PIN, LOW);
+  analogWrite(PWM_PIN, pwmOut);
+}
+`;
+const SAMPLES = [["P 제어 (앞 11ch만)", SAMPLE_CODE], ["PID · 앞 11ch + 뒤 5ch · 가변 속도", SAMPLE_PID]];
+let MAPS = [], MAPS_READY = null;
+const SIM = { mapId: "N1_oval", speed: 1, cars: [], sel: null, follow: null, dock: "code", dockOpen: true };
+let simSeq = 1;
+
+// ---- 차량 설계(JSON) → 워커 설정 ----
+function withDesign(design, fn) { const old = S; try { S = fromJSON(design); return fn(); } finally { S = old; } }
+function carConfig(car) {
+  return withDesign(car.design, () => {
+    const D = derive();
+    const pinOf = ref => { const p = (D.conn[ref] || []).map(i => megaPinById[i]).find(p => p && p.kind === "io"); return p ? p.n : -1; };
+    const ir = [], shapes = [];
+    for (const c of S.comps) {
+      shapes.push({ type: c.type, pts: compShape(c).map(p => toBodyC(c, ...p)) });
+      if (c.type === "ir5" || c.type === "ir11") for (const i of IRMOD[c.type].order) {
+        const a = pinOf(`${c.id}.A${i}`), d = pinOf(`${c.id}.D${i}`);
+        const [x, y] = toBodyC(c, ...irL(...IRMOD[c.type].sensors[i]));
+        ir.push({ x, y, analog: a, digital: d, wired: a >= 0 || d >= 0 });
+      }
+    }
+    const us = S.comps.filter(c => c.type === "us").map(c => ({ x: c.x, y: c.y, yaw: c.yaw * D2R, trig: pinOf(`${c.id}.TRIG`), echo: pinOf(`${c.id}.ECHO`) }));
+    const B = S.body, hw = B.W / 2 + 1.3;
+    return { act: D.act, ir: ir.filter(s => s.wired), irAll: ir, us, params: { ...S.params }, body: { ...B }, shapes,
+      foot: [[-B.rear, hw], [B.L + B.front, hw], [B.L + B.front, -hw], [-B.rear, -hw]] };
+  });
+}
+
+// ---- 저장 ----
+function simSave() {
+  try { localStorage.setItem(SIM_STORE, JSON.stringify({ mapId: SIM.mapId, speed: SIM.speed,
+    cars: SIM.cars.map(c => ({ name: c.name, color: c.color, design: c.design, code: c.code, start: c.start })) })); } catch (e) {}
+}
+function simLoad() {
+  try { const j = JSON.parse(localStorage.getItem(SIM_STORE) || "null"); if (!j) return false;
+    SIM.mapId = j.mapId || SIM.mapId; SIM.speed = j.speed || 1;
+    for (const c of j.cars || []) addCar(c.design, { name: c.name, color: c.color, code: c.code, start: c.start, quiet: true });
+    return true; } catch (e) { return false; }
+}
+
+// ---- 맵 ----
+const curMap = () => MAPS.find(m => m.id === SIM.mapId) || MAPS[0];
+function startSlot(i) {
+  const m = curMap(); if (!m) return { x: 0, y: 0, yaw: 0 };
+  const back = i * 60;                                   // 60 cm 간격으로 출발선 뒤에
+  return { x: m.start.x - back * Math.cos(m.start.yaw), y: m.start.y - back * Math.sin(m.start.yaw), yaw: m.start.yaw };
+}
+const mapPaths = new Map();
+function pathsFor(m) {
+  if (!mapPaths.has(m.id)) mapPaths.set(m.id, m.lines.map(l => { const p = new Path2D(); l.pts.forEach(([x, y], i) => i ? p.lineTo(x, y) : p.moveTo(x, y)); if (l.closed) p.closePath(); return { p, color: l.color }; }));
+  return mapPaths.get(m.id);
+}
+function setMap(id) {
+  SIM.cars.forEach(stopCar);
+  SIM.mapId = id; const m = curMap();
+  SIM.cars.forEach((c, i) => { c.start = startSlot(i); c.pose = { ...c.start }; c.trail = []; });
+  for (const c of SIM.cars) if (c.worker) c.worker.postMessage({ type: "map", map: m });
+  simSave(); fitSim(); renderSimUI();
+}
+
+// ---- 차량 추가/삭제 ----
+function addCar(design, o = {}) {
+  if (SIM.cars.length >= MAX_CARS) { $("addMsg").textContent = `차는 최대 ${MAX_CARS}대까지 올릴 수 있습니다.`; return null; }
+  try { fromJSON(design); } catch (e) { $("addMsg").textContent = "차량 설정을 읽지 못했습니다: " + e.message; return null; }
+  const used = new Set(SIM.cars.map(c => c.color));
+  const id = simSeq++, car = { id, name: o.name || `${id}번 차`, color: o.color || CAR_COLORS.find(k => !used.has(k)) || "car1", design, code: o.code ?? SAMPLE_CODE,
+    start: o.start || startSlot(SIM.cars.length), status: "stopped", worker: null, busy: false, hex: null, hexSrc: null, serial: [], serialTail: "", trail: [], err: "", hit: false };
+  car.pose = { ...car.start, v: 0, delta: 0, servo: 110, pwm: 0, t: 0 };
+  car.cfg = carConfig(car);
+  SIM.cars.push(car); SIM.sel = id;
+  if (!o.quiet) { simSave(); renderSimUI(); }
+  return car;
+}
+function removeCar(car) {
+  stopCar(car); car.worker?.terminate();
+  SIM.cars = SIM.cars.filter(c => c !== car);
+  if (SIM.sel === car.id) SIM.sel = SIM.cars[0]?.id ?? null;
+  if (SIM.follow === car.id) SIM.follow = null;
+  simSave(); renderSimUI();
+}
+const selCar = () => SIM.cars.find(c => c.id === SIM.sel) || null;
+
+// ---- 컴파일 (한 번에 하나, 매번 새 워커) ----
+let compileChain = Promise.resolve();
+function compileCode(source) {
+  const job = compileChain.then(() => new Promise(res => {
+    let w; try { w = new Worker(new URL("compiler-worker.js", location.href), { type: "module" }); }
+    catch (e) { res({ ok: false, error: "컴파일러를 시작하지 못했습니다: " + e.message, log: [] }); return; }
+    w.onmessage = ({ data }) => { w.terminate(); res(data); };
+    w.onerror = e => { w.terminate(); res({ ok: false, error: "컴파일러 오류: " + (e.message || "알 수 없음"), log: [] }); };
+    w.postMessage({ source });
+  }));
+  compileChain = job.catch(() => {});
+  return job;
+}
+const errLines = log => [...log.join("\n").matchAll(/sketch\.ino:(\d+):\d+: error:/g)].map(m => +m[1]);
+
+// ---- 실행 제어 ----
+async function runCar(car) {
+  if (car.status === "running" || car.status === "compiling" || car.status === "starting") return;
+  if (car.status === "paused") { car.status = "running"; renderSimUI(); return; }
+  if (car.hexSrc !== car.code) {
+    car.status = "compiling"; renderSimUI();
+    const r = await compileCode(car.code);
+    if (!SIM.cars.includes(car)) return;
+    if (!r.ok) { car.status = "error"; car.err = [r.error, ...(r.log || [])].join("\n"); SIM.sel = car.id; setDock("code"); renderSimUI(); showCodeResult(car); return; }
+    car.hex = r.hex; car.hexSrc = car.code; car.err = ""; car.flash = r.flash;
+  }
+  car.status = "starting"; renderSimUI();
+  if (!car.worker) {
+    try { car.worker = new Worker(new URL("car-worker.js", location.href), { type: "module" }); }
+    catch (e) { car.status = "error"; car.err = "차량 워커를 시작하지 못했습니다: " + e.message; renderSimUI(); return; }
+    car.worker.onmessage = ({ data }) => onCarMsg(car, data);
+    car.worker.onerror = e => { car.status = "error"; car.err = "차량 워커 오류: " + (e.message || ""); renderSimUI(); };
+    car.worker.postMessage({ type: "map", map: curMap() });
+  }
+  car.cfg = carConfig(car); car.trail = []; car.serial = []; car.serialTail = ""; car.serialUnread = 0;
+  car.worker.postMessage({ type: "init", hex: car.hex, cfg: { ...car.cfg, start: car.start } });
+}
+function onCarMsg(car, d) {
+  if (d.type === "ready") { if (car.status === "starting") car.status = "running"; car.busy = false; renderSimUI(); return; }
+  if (d.type === "error") { car.status = "error"; car.err = "에뮬레이션 중단: " + d.message; car.busy = false; renderSimUI(); return; }
+  if (d.type !== "state") return;
+  car.busy = false;
+  if (car.status === "stopped") return;
+  const prev = car.pose;
+  car.pose = { x: d.x, y: d.y, yaw: d.yaw, v: d.v, delta: d.delta, servo: d.servo, pwm: d.pwm, t: d.t };
+  // 충돌: 다른 차 외곽과 겹치면 이번 이동을 되돌리고 멈춤
+  car.hit = false;
+  for (const o of SIM.cars) if (o !== car && o.status !== "hidden" && polysOverlap(footWorld(car, car.pose), footWorld(o, o.pose))) { car.hit = true; break; }
+  if (car.hit && prev) { car.pose = { ...car.pose, x: prev.x, y: prev.y, yaw: prev.yaw, v: 0 }; car.forcePose = { x: prev.x, y: prev.y, yaw: prev.yaw }; }
+  else for (const p of d.trail) { car.trail.push(p); if (car.trail.length > 20000) car.trail.shift(); }
+  if (d.serial) {
+    const parts = (car.serialTail + d.serial).split("\n"); car.serialTail = parts.pop();
+    car.serial.push(...parts.map(l => l.replace(/\r$/, ""))); if (car.serial.length > 500) car.serial.splice(0, car.serial.length - 500);
+    const viewing = SIM.sel === car.id && SIM.dock === "serial" && SIM.dockOpen;
+    if (viewing) renderSerial(); else { car.serialUnread = (car.serialUnread || 0) + parts.length; if (SIM.sel === car.id) renderDockHead(); }
+    const m = document.querySelector(`.carrow[data-car="${car.id}"] .meta`);
+    if (m) { let s = m.querySelector(".ser"); if (!s) { s = document.createElement("span"); s.className = "ser"; m.append(s); } s.textContent = `Serial ${car.serial.length}줄`; }
+  }
+}
+function pauseCar(car) { if (car.status === "running") { car.status = "paused"; renderSimUI(); } }
+function stopCar(car) {
+  if (car.status === "stopped") return;
+  car.status = "stopped"; car.busy = false; car.hit = false; car.forcePose = null;
+  car.pose = { ...car.start, v: 0, delta: 0, servo: 110, pwm: 0, t: 0 }; car.trail = [];
+  if (car.worker) { car.worker.terminate(); car.worker = null; }       // 다음 실행 때 새로 시작 (MCU 리셋)
+  renderSimUI();
+}
+
+// ---- 기하 ----
+function footWorld(car, p) { const c = Math.cos(p.yaw), s = Math.sin(p.yaw); return car.cfg.foot.map(([x, y]) => [p.x + x * c - y * s, p.y + x * s + y * c]); }
+function polysOverlap(A, B) {
+  for (const P of [A, B]) for (let i = 0; i < P.length; i++) {
+    const [x1, y1] = P[i], [x2, y2] = P[(i + 1) % P.length], nx = y2 - y1, ny = x1 - x2;
+    let amin = Infinity, amax = -Infinity, bmin = Infinity, bmax = -Infinity;
+    for (const [x, y] of A) { const v = x * nx + y * ny; amin = Math.min(amin, v); amax = Math.max(amax, v); }
+    for (const [x, y] of B) { const v = x * nx + y * ny; bmin = Math.min(bmin, v); bmax = Math.max(bmax, v); }
+    if (amax < bmin || bmax < amin) return false;
+  }
+  return true;
+}
+const toCarFrame = (p, x, y) => { const dx = x - p.x, dy = y - p.y, c = Math.cos(p.yaw), s = Math.sin(p.yaw); return [c * dx + s * dy, -s * dx + c * dy]; };
+
+// ---- 메인 루프: 실행 중인 차마다 경과 시간만큼 워커에 스텝 요청 ----
+let simLast = performance.now(), simAcc = 0;
+function simFrame(now) {
+  const dt = Math.min(50, now - simLast); simLast = now;
+  if (!$("pageSim").hidden) {
+    simAcc += dt * SIM.speed;
+    const n = Math.floor(simAcc); simAcc -= n;
+    if (n > 0) for (const car of SIM.cars) {
+      if (car.status !== "running" || car.busy || !car.worker) continue;
+      const others = [];
+      for (const o of SIM.cars) if (o !== car) { const F = footWorld(o, o.pose); for (let i = 0; i < 4; i++) others.push([...F[i], ...F[(i + 1) % 4]]); }
+      car.busy = true;
+      car.worker.postMessage({ type: "step", n: Math.min(n, 100), others, pose: car.forcePose || null });
+      car.forcePose = null;
+    }
+    drawSim(); tickSimUI();
+  }
+  requestAnimationFrame(simFrame);
+}
+
+// ---- 보드 그리기 ----
+const scv = $("simCv"), sctx = scv.getContext("2d");
+const scam = { x: 0, y: 0, s: 2 };                          // s = px/cm (장치 픽셀)
+const sToPx = (x, y) => [scv.width / 2 + (x - scam.x) * scam.s, scv.height / 2 - (y - scam.y) * scam.s];
+const sToW = (px, py) => [scam.x + (px - scv.width / 2) / scam.s, scam.y - (py - scv.height / 2) / scam.s];
+function simResize() { const r = scv.getBoundingClientRect(), w = Math.round(r.width * dpr()), h = Math.round(r.height * dpr()); if (w > 0 && (scv.width !== w || scv.height !== h)) { scv.width = w; scv.height = h; } }
+function fitSim() {
+  simResize(); const m = curMap(); if (!m || !scv.width) return;
+  const [x0, y0, x1, y1] = m.bounds;
+  scam.x = (x0 + x1) / 2; scam.y = (y0 + y1) / 2; scam.s = Math.min(scv.width / (x1 - x0), scv.height / (y1 - y0)) * 0.96;
+  SIM.follow = null; renderCarList();
+}
+const ccol = k => colors[k] || getComputedStyle(document.documentElement).getPropertyValue("--" + k).trim();
+function drawSim() {
+  simResize();
+  const W = scv.width, H = scv.height, k = dpr(), g = sctx; if (!W) return;
+  g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = colors.field; g.fillRect(0, 0, W, H);
+  const m = curMap();
+  const fc = SIM.cars.find(c => c.id === SIM.follow); if (fc) { scam.x = fc.pose.x; scam.y = fc.pose.y; }
+  const world = () => g.setTransform(scam.s, 0, 0, -scam.s, W / 2 - scam.x * scam.s, H / 2 + scam.y * scam.s);
+  if (m) {
+    world();
+    const [x0, y0, x1, y1] = m.bounds; g.fillStyle = m.floor; g.fillRect(x0, y0, x1 - x0, y1 - y0);
+    g.lineWidth = m.lineWidth; g.lineJoin = "round"; g.lineCap = "butt";
+    for (const { p, color } of pathsFor(m)) { g.strokeStyle = color; g.stroke(p); }
+    // 출발선
+    g.strokeStyle = "#e5484d"; g.lineWidth = 2; g.beginPath();
+    const n = [-Math.sin(m.start.yaw), Math.cos(m.start.yaw)]; g.moveTo(m.start.x - n[0] * 12, m.start.y - n[1] * 12); g.lineTo(m.start.x + n[0] * 12, m.start.y + n[1] * 12); g.stroke();
+  }
+  // 궤적
+  for (const car of SIM.cars) if (car.trail.length > 1) {
+    world(); g.strokeStyle = ccol(car.color); g.globalAlpha = 0.55; g.lineWidth = 1.2 * k / scam.s; g.beginPath();
+    car.trail.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.stroke(); g.globalAlpha = 1;
+  }
+  // 차량
+  for (const car of SIM.cars) {
+    const p = car.pose, col = ccol(car.color), sel = car.id === SIM.sel, B = car.cfg.body;
+    world(); g.translate(p.x, p.y); g.rotate(p.yaw);
+    if (sel) for (const u of car.cfg.us) {                   // 선택한 차의 초음파 빔
+      g.save(); g.translate(u.x, u.y); g.rotate(u.yaw); g.beginPath(); g.moveTo(0, 0);
+      for (let a = -15; a <= 15; a += 3) g.lineTo(80 * Math.cos(a * D2R), 80 * Math.sin(a * D2R));
+      g.closePath(); g.fillStyle = colors.beam; g.fill(); g.restore();
+    }
+    const hw = B.W / 2 - 2;
+    g.fillStyle = col; g.globalAlpha = 0.22; g.fillRect(-B.rear, -hw, B.L + B.front + B.rear, 2 * hw); g.globalAlpha = 1;
+    for (const sh of car.cfg.shapes) { if (sh.type === "mega") continue; g.beginPath(); sh.pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath();
+      g.fillStyle = sh.type.startsWith("ir") ? colors.pcb11 : colors.part; g.globalAlpha = 0.75; g.fill(); g.globalAlpha = 1; }
+    g.fillStyle = colors.car; for (const [x, y] of [[0, B.W / 2], [0, -B.W / 2], [B.L, B.W / 2], [B.L, -B.W / 2]]) {
+      g.save(); g.translate(x, y); if (x > 0) g.rotate(p.delta || 0); g.fillRect(-3.25, -1.3, 6.5, 2.6); g.restore(); }
+    g.lineWidth = (sel ? 3 : 1.6) * k / scam.s; g.strokeStyle = car.hit ? colors.err : col;
+    g.strokeRect(-B.rear, -hw, B.L + B.front + B.rear, 2 * hw);
+    g.fillStyle = "#ffffff"; for (const s of car.cfg.irAll) { g.beginPath(); g.arc(s.x, s.y, Math.max(0.25, 1.4 * k / scam.s), 0, 2 * Math.PI); g.fill(); }
+    // 이름표 (화면 좌표)
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    const [lx, ly] = sToPx(p.x, p.y);
+    g.font = `600 ${11.5 * k}px "IBM Plex Sans KR", sans-serif`; g.textAlign = "center"; g.textBaseline = "bottom";
+    const tw = g.measureText(car.name).width + 10 * k; g.fillStyle = col; g.globalAlpha = 0.9;
+    g.fillRect(lx - tw / 2, ly - (B.W / 2 + 4) * scam.s - 18 * k, tw, 17 * k); g.globalAlpha = 1; g.fillStyle = "#fff";
+    g.fillText(car.name, lx, ly - (B.W / 2 + 4) * scam.s - 4 * k);
+    // 회전 핸들 (선택 + 정지 상태)
+    if (sel && car.status === "stopped") { const [hx, hy] = simHandle(car); g.strokeStyle = colors.accent; g.lineWidth = 1.5 * k;
+      g.beginPath(); g.moveTo(lx, ly); g.lineTo(hx, hy); g.stroke(); g.beginPath(); g.arc(hx, hy, 7 * k, 0, 2 * Math.PI); g.fillStyle = colors.panel; g.fill(); g.stroke();
+      g.beginPath(); g.arc(hx, hy, 3.5 * k, -Math.PI * 0.9, Math.PI * 0.5); g.stroke(); }
+  }
+  g.setTransform(1, 0, 0, 1, 0, 0);
+}
+function simHandle(car) { const B = car.cfg.body, r = B.L + B.front + 4 + 26 * dpr() / scam.s; return sToPx(car.pose.x + r * Math.cos(car.pose.yaw), car.pose.y + r * Math.sin(car.pose.yaw)); }
+
+// ---- 보드 포인터 ----
+const sPt = e => { const r = scv.getBoundingClientRect(); return [(e.clientX - r.left) * scv.width / r.width, (e.clientY - r.top) * scv.height / r.height]; };
+function hitCarAt(wx, wy) {
+  for (const car of [...SIM.cars].reverse()) {
+    const [x, y] = toCarFrame(car.pose, wx, wy), B = car.cfg.body;
+    if (x >= -B.rear - 2 && x <= B.L + B.front + 8 && Math.abs(y) <= Math.max(B.W / 2 + 2, ...car.cfg.shapes.filter(s => s.type !== "mega").flatMap(s => s.pts.map(p => Math.abs(p[1]))))) return car;
+  }
+  return null;
+}
+let sdown = null;
+function simTip(e, text) { const r = scv.getBoundingClientRect(), t = $("simTip"); if (!text) { t.hidden = true; return; } t.hidden = false; t.textContent = text; t.style.left = (e.clientX - r.left) + "px"; t.style.top = (e.clientY - r.top) + "px"; }
+scv.addEventListener("pointerdown", e => {
+  scv.setPointerCapture(e.pointerId);
+  const [px, py] = sPt(e), [wx, wy] = sToW(px, py);
+  if (e.button === 1) { e.preventDefault(); sdown = { pan: true, px, py }; return; }
+  const sc = selCar();
+  if (sc && sc.status === "stopped") { const [hx, hy] = simHandle(sc); if (Math.hypot(px - hx, py - hy) < 10 * dpr()) { sdown = { rot: sc, startYaw: sc.start.yaw, a0: Math.atan2(wy - sc.pose.y, wx - sc.pose.x) }; return; } }
+  const car = hitCarAt(wx, wy);
+  if (car) { SIM.sel = car.id; renderSimUI(); sdown = { car, px, py, off: [car.start.x - wx, car.start.y - wy], moved: false }; return; }
+  sdown = { pan: true, px, py };
+});
+scv.addEventListener("pointermove", e => {
+  const [px, py] = sPt(e), [wx, wy] = sToW(px, py);
+  if (!sdown) { const car = hitCarAt(wx, wy); scv.style.cursor = car ? (car.status === "stopped" ? "move" : "pointer") : "default"; return; }
+  if (sdown.pan) { scam.x -= (px - sdown.px) / scam.s; scam.y += (py - sdown.py) / scam.s; sdown.px = px; sdown.py = py; if (SIM.follow) { SIM.follow = null; renderCarList(); } return; }
+  if (sdown.rot) { const c = sdown.rot; let d = Math.atan2(wy - c.pose.y, wx - c.pose.x) - sdown.a0; d = Math.atan2(Math.sin(d), Math.cos(d));
+    const deg = Math.round((sdown.startYaw + d) / D2R / 5) * 5; c.start.yaw = deg * D2R; c.pose.yaw = c.start.yaw;
+    const dd = norm(Math.round((c.start.yaw - sdown.startYaw) / D2R)); simTip(e, `${dd > 0 ? "+" : ""}${dd}° · yaw ${norm(deg)}°`); return; }
+  if (sdown.car) {
+    if (!sdown.moved && Math.hypot(px - sdown.px, py - sdown.py) < 4 * dpr()) return;
+    sdown.moved = true;
+    const c = sdown.car;
+    if (c.status !== "stopped") { simTip(e, "정지(⏹) 상태에서만 옮길 수 있습니다"); return; }
+    c.start.x = Math.round((wx + sdown.off[0]) * 2) / 2; c.start.y = Math.round((wy + sdown.off[1]) * 2) / 2; c.pose.x = c.start.x; c.pose.y = c.start.y;
+  }
+});
+const sEnd = () => { if (sdown && (sdown.rot || sdown.car?.status === "stopped")) { simSave(); renderSel(); } sdown = null; $("simTip").hidden = true; };
+scv.addEventListener("pointerup", sEnd); scv.addEventListener("pointercancel", sEnd);
+scv.addEventListener("mousedown", e => { if (e.button === 1) e.preventDefault(); });
+scv.addEventListener("wheel", e => { e.preventDefault(); const [px, py] = sPt(e), [wx, wy] = sToW(px, py);
+  scam.s = clamp(scam.s * Math.exp(-(e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY) * 0.0015), 0.05, 200);
+  if (!SIM.follow) { const [wx2, wy2] = sToW(px, py); scam.x += wx - wx2; scam.y += wy - wy2; } }, { passive: false });
+
+// ---- UI ----
+const STATUS = { stopped: ["정지", ""], compiling: ["컴파일 중", "warn"], starting: ["시작 중", "warn"], running: ["실행 중", "live"], paused: ["일시정지", "warn"], error: ["오류", "err"] };
+const esc = s => String(s).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+function selectCar(car) { if (!car || SIM.sel === car.id) return; SIM.sel = car.id; renderSimUI(); }
+function renderSimUI() { renderCarList(); renderSel(); renderDock(); $("carCount").textContent = `${SIM.cars.length} / ${MAX_CARS}대`;
+  $("simMsg").hidden = SIM.cars.length > 0; $("simMsg").textContent = "오른쪽 '차량 불러오기'에서 차를 올리세요."; }
+// 코드 상태 한 줄: 컴파일 여부·수정 여부
+function codeState(car) {
+  if (car.err && car.status === "error") return [`컴파일·실행 오류`, "bad"];
+  if (!car.hex) return ["아직 컴파일 안 함", ""];
+  if (car.hexSrc !== car.code) return ["코드 수정됨 · 다음 실행 때 컴파일", "dirty"];
+  return [`컴파일됨${car.flash ? ` · ${car.flash} B` : ""}`, ""];
+}
+function renderCarList() {
+  const el = $("dpCars");
+  $("dockCount").textContent = `${SIM.cars.length} / ${MAX_CARS}대 · 차를 고르면 오른쪽에 그 차의 코드와 Serial이 열립니다`;
+  if (!SIM.cars.length) { el.innerHTML = `<p class="sub">맵에 올라온 차량이 없습니다.</p>`; return; }
+  el.innerHTML = SIM.cars.map(c => { const [st, cls] = STATUS[c.status], [cs, ccls] = codeState(c), busy = c.status === "compiling" || c.status === "starting";
+    return `<div class="carrow${c.id === SIM.sel ? " sel" : ""}" data-car="${c.id}" role="option" aria-selected="${c.id === SIM.sel}" style="--cc:var(--${c.color})">
+      <span class="dot"></span><span class="nm">${esc(c.name)}</span><span class="status ${cls}">${st}</span>
+      <span class="meta"><span class="${ccls}">${cs}</span>${c.serial.length ? `<span class="ser">Serial ${c.serial.length}줄</span>` : ""}</span>
+      <span class="ctl">
+        ${c.status === "running" ? `<button type="button" data-act="pause" title="${esc(c.name)} 일시정지">⏸ 일시정지</button>` : `<button type="button" data-act="run" title="${esc(c.name)} ${c.status === "paused" ? "계속" : "실행"}"${busy ? " disabled" : ""}>▶ ${c.status === "paused" ? "계속" : "실행"}</button>`}
+        <button type="button" data-act="stop" title="정지 · 출발 위치로"${c.status === "stopped" ? " disabled" : ""}>⏹</button>
+        <button type="button" data-act="eye" class="eye${SIM.follow === c.id ? " on" : ""}" title="이 차 시점으로 보기" aria-pressed="${SIM.follow === c.id}">👁</button>
+      </span></div>`; }).join("");
+  el.querySelectorAll(".carrow").forEach(row => row.onclick = ev => {
+    const car = SIM.cars.find(c => c.id === +row.dataset.car), act = ev.target.closest("button")?.dataset.act;
+    SIM.sel = car.id;
+    if (act === "run") runCar(car); else if (act === "pause") pauseCar(car); else if (act === "stop") stopCar(car);
+    else if (act === "eye") { SIM.follow = SIM.follow === car.id ? null : car.id; if (SIM.follow) scam.s = Math.max(scam.s, 6 * dpr()); }
+    renderSimUI();
+  });
+}
+function renderSel() {
+  const car = selCar(), body = $("sselBody");
+  if (!car) { $("sselTitle").textContent = "선택한 차량"; $("sselStatus").textContent = ""; $("sselStatus").className = "status"; body.innerHTML = `<p class="sub">보드나 아래 목록에서 차를 클릭하세요.</p>`; return; }
+  const [st, cls] = STATUS[car.status], stopped = car.status === "stopped";
+  $("sselTitle").textContent = car.name; $("sselStatus").textContent = st; $("sselStatus").className = "status " + cls;
+  body.innerHTML = `<div class="fld"><label for="ssName">이름<input id="ssName" type="text" value="${esc(car.name)}" style="font-family:var(--font-ui);padding:4px 6px;border:1px solid var(--line);border-radius:4px;background:var(--field);color:var(--fg)"></label>
+      <div><span class="sub">색</span><div class="swatches" style="margin-top:4px">${CAR_COLORS.map(k => `<button type="button" data-col="${k}" class="${car.color === k ? "on" : ""}" style="background:var(--${k})" aria-label="색 ${k}"></button>`).join("")}</div></div></div>
+    <div class="fld three"><label for="ssX">출발 x [cm]<input id="ssX" type="number" step="0.5" value="${+car.start.x.toFixed(1)}"${stopped ? "" : " disabled"}></label>
+      <label for="ssY">출발 y [cm]<input id="ssY" type="number" step="0.5" value="${+car.start.y.toFixed(1)}"${stopped ? "" : " disabled"}></label>
+      <label for="ssW">출발 yaw [°]<input id="ssW" type="number" step="5" value="${norm(Math.round(car.start.yaw / D2R))}"${stopped ? "" : " disabled"}></label></div>
+    <p class="sub" id="ssLive"></p>
+    <div class="sel-actions"><button type="button" id="ssLayout">레이아웃 수정</button><button type="button" id="ssCode">코드 열기</button><button type="button" id="ssDel" class="danger">삭제</button></div>`;
+  $("ssName").oninput = e => { car.name = e.target.value || `${car.id}번 차`; $("sselTitle").textContent = car.name; renderCarList(); renderDockHead(); simSave(); };
+  body.querySelectorAll("[data-col]").forEach(b => b.onclick = () => { car.color = b.dataset.col; simSave(); renderSimUI(); });
+  for (const [id, k, f] of [["ssX", "x", v => v], ["ssY", "y", v => v], ["ssW", "yaw", v => v * D2R]]) $(id).onchange = e => { const v = parseFloat(e.target.value); if (Number.isFinite(v) && car.status === "stopped") { car.start[k] = f(v); car.pose = { ...car.pose, ...car.start }; simSave(); } };
+  $("ssLayout").onclick = () => startLayoutEdit(car);
+  $("ssCode").onclick = () => { setDock("code"); $("dockDetail").scrollIntoView({ behavior: "smooth", block: "nearest" }); };
+  $("ssDel").onclick = () => { if (car._delArm && Date.now() - car._delArm < 3000) removeCar(car); else { car._delArm = Date.now(); $("ssDel").textContent = "한 번 더 누르면 삭제"; } };
+}
+function tickSimUI() {                                        // 매 프레임 바뀌는 값만 갱신
+  const car = selCar(); if (!car) return;
+  const el = $("ssLive"); if (!el) return;
+  const p = car.pose;
+  el.textContent = car.status === "stopped" ? "정지 상태 · 보드에서 드래그해 출발 위치를 옮길 수 있습니다." :
+    `MCU ${(p.t || 0).toFixed(1)} s · ${(p.v || 0).toFixed(0)} cm/s · 서보 ${(p.servo || 0).toFixed(0)}° · PWM ${p.pwm || 0}${car.hit ? " · 충돌" : ""}`;
+}
+
+// ---- 하단 차량 관리: 왼쪽 목록에서 고른 차의 코드 / Serial ----
+let cm = null;
+const cmDocs = new Map();                                    // 차마다 CodeMirror 문서 (되돌리기 기록도 차별)
+function setDock(which) { SIM.dock = which; SIM.dockOpen = true; renderDock(); }
+function renderDockHead() {
+  const car = selCar(), dd = $("dockDetail");
+  dd.style.setProperty("--cc", car ? `var(--${car.color})` : "var(--line)");
+  $("ddName").textContent = car ? car.name : "";
+  const [st, cls] = car ? STATUS[car.status] : ["", ""];
+  $("ddStatus").textContent = st; $("ddStatus").className = "status " + cls; $("ddStatus").hidden = !car;
+  $("ddDot").hidden = !car;
+  const nb = $("serBadge"), unread = car && SIM.dock !== "serial" ? car.serialUnread || 0 : 0;
+  nb.hidden = !unread; nb.textContent = unread > 99 ? "99+" : unread;
+}
+function renderDock() {
+  if (SIM.dock !== "code" && SIM.dock !== "serial") SIM.dock = "code";
+  $("dockBody").hidden = !SIM.dockOpen; $("dockToggle").textContent = SIM.dockOpen ? "접기" : "펼치기"; $("dockToggle").setAttribute("aria-expanded", SIM.dockOpen);
+  const car = selCar();
+  $("dtCode").setAttribute("aria-selected", SIM.dock === "code"); $("dtSerial").setAttribute("aria-selected", SIM.dock === "serial");
+  $("ddEmpty").hidden = !!car; $("dpCode").hidden = !car || SIM.dock !== "code"; $("dpSerial").hidden = !car || SIM.dock !== "serial";
+  $("dtCode").disabled = $("dtSerial").disabled = !car;
+  if (car && SIM.dock === "serial") car.serialUnread = 0;
+  renderDockHead();
+  if (!car) return;
+  if (SIM.dock === "code") {
+    $("codeFor").textContent = `${car.name}에 올라갈 스케치 · Mega 2560 · ▶ 실행 때 자동 컴파일`;
+    ensureEditor(); showEditorFor(car); showCodeResult(car);
+    if (cm) setTimeout(() => cm.refresh(), 0);
+  } else renderSerial();
+}
+function ensureEditor() {
+  if (cm || $("codeTa")) return;
+  const host = $("codeEditor");
+  if (window.CodeMirror) {
+    cm = CodeMirror(host, { value: "", mode: "text/x-c++src", lineNumbers: true, indentUnit: 2, tabSize: 2, matchBrackets: true });
+  } else {
+    host.innerHTML = `<textarea id="codeTa" spellcheck="false" aria-label="스케치 코드"></textarea>`;
+    $("codeTa").oninput = e => { const car = SIM.cars.find(c => c.id === e.target._car); if (car) { car.code = e.target.value; codeChanged(car); } };
+  }
+}
+function showEditorFor(car) {
+  if (cm) {
+    let doc = cmDocs.get(car.id);
+    if (!doc || doc.getValue() !== car.code) {
+      doc = CodeMirror.Doc(car.code, "text/x-c++src"); cmDocs.set(car.id, doc);
+      doc.on("change", () => { car.code = doc.getValue(); codeChanged(car); });
+    }
+    if (cm.getDoc() !== doc) cm.swapDoc(doc);
+  } else { const ta = $("codeTa"); if (ta._car !== car.id || ta.value !== car.code) { ta.value = car.code; ta._car = car.id; } }
+}
+let saveT = 0;
+function codeChanged(car) {
+  clearTimeout(saveT); saveT = setTimeout(simSave, 400);
+  if (car.status === "error") { car.status = "stopped"; car.err = ""; }
+  if (car.id === SIM.sel) showCodeResult(car);
+  renderCarList();
+}
+function showCodeResult(car) {
+  const out = $("codeOut"); if (!out || !car) return;
+  if (cm) { const doc = cm.getDoc(); for (let i = 0; i < doc.lineCount(); i++) doc.removeLineClass(i, "background", "cm-err-line"); }
+  if (car.err) { out.className = "code-out err"; out.textContent = car.err;
+    if (cm) for (const ln of errLines(car.err.split("\n"))) if (ln - 1 < cm.lineCount()) cm.addLineClass(ln - 1, "background", "cm-err-line"); return; }
+  out.className = "code-out";
+  if (car.status !== "stopped" && car.hexSrc !== car.code) out.textContent = `코드가 바뀌었습니다. ${car.name}을(를) ⏹ 정지한 뒤 다시 ▶ 실행하면 새 코드로 컴파일됩니다.`;
+  else out.textContent = car.hexSrc === car.code && car.hex ? `컴파일됨 · 플래시 ${car.flash ?? "?"} bytes` : "아직 컴파일하지 않았습니다. '컴파일 확인' 또는 ▶ 실행.";
+}
+function renderSerial() {
+  const car = selCar(), el = $("serialOut"); if (!car) return;
+  $("serialFor").textContent = `${car.name}의 Serial 출력 · 115200`;
+  const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
+  el.textContent = car.serial.join("\n") + (car.serialTail ? "\n" + car.serialTail : "") || "(아직 출력 없음)";
+  if (atBottom) el.scrollTop = el.scrollHeight;
+}
+$("dtCode").onclick = () => setDock("code"); $("dtSerial").onclick = () => setDock("serial");
+$("dockToggle").onclick = () => { SIM.dockOpen = !SIM.dockOpen; renderDock(); };
+$("codeCompile").onclick = async () => {
+  const car = selCar(); if (!car) return;
+  $("codeOut").className = "code-out"; $("codeOut").textContent = `${car.name} 코드 컴파일 중… (처음 한 번은 컴파일러 약 19 MB를 받습니다)`;
+  const src = car.code, r = await compileCode(src);
+  if (r.ok) { car.hex = r.hex; car.hexSrc = src; car.flash = r.flash; car.err = ""; if (car.status === "error") car.status = "stopped"; }
+  else car.err = [r.error, ...(r.log || [])].join("\n");
+  renderSimUI();
+};
+$("codeHex").onchange = e => { const f = e.target.files[0], car = selCar(); if (!f || !car) return; const r = new FileReader();
+  r.onload = () => { car.hex = r.result; car.hexSrc = car.code; car.flash = null; car.err = ""; renderCarList(); $("codeOut").className = "code-out"; $("codeOut").textContent = `${f.name}을(를) ${car.name}의 펌웨어로 씁니다. 코드를 고치면 다시 컴파일합니다.`; };
+  r.readAsText(f); e.target.value = ""; };
+function replaceCode(car, code) { car.code = code; cmDocs.delete(car.id); if ($("codeTa")) $("codeTa")._car = null; codeChanged(car); renderDock(); simSave(); }
+$("codeCopy").onclick = () => {
+  const car = selCar(), menu = $("copyMenu"); if (!car) return;
+  if (!menu.hidden && menu.dataset.kind === "copy") { menu.hidden = true; return; }
+  menu.dataset.kind = "copy";
+  const others = SIM.cars.filter(c => c !== car);
+  menu.innerHTML = others.length ? `<span class="sub">${esc(car.name)}의 코드를 덮어씁니다:</span>` + others.map(o => `<button type="button" data-from="${o.id}" style="--cc:var(--${o.color})"><span class="dot"></span>${esc(o.name)} 코드</button>`).join("") + `<button type="button" data-from="x">닫기</button>`
+    : `<span class="sub">다른 차가 없습니다.</span><button type="button" data-from="x">닫기</button>`;
+  menu.hidden = false;
+  menu.querySelectorAll("[data-from]").forEach(b => b.onclick = () => { menu.hidden = true; const o = SIM.cars.find(c => c.id === +b.dataset.from); if (o) replaceCode(car, o.code); });
+};
+$("codeSample").onclick = () => {
+  const car = selCar(), menu = $("copyMenu"); if (!car) return;
+  if (!menu.hidden && menu.dataset.kind === "sample") { menu.hidden = true; return; }
+  menu.dataset.kind = "sample";
+  menu.innerHTML = `<span class="sub">${esc(car.name)}의 코드를 샘플로 덮어씁니다:</span>` + SAMPLES.map(([n], i) => `<button type="button" data-s="${i}">${esc(n)}</button>`).join("") + `<button type="button" data-s="x">닫기</button>`;
+  menu.hidden = false;
+  menu.querySelectorAll("[data-s]").forEach(b => b.onclick = () => { menu.hidden = true; const s = SAMPLES[+b.dataset.s]; if (s) replaceCode(car, s[1]); });
+};
+$("serialClear").onclick = () => { const car = selCar(); if (car) { car.serial = []; car.serialTail = ""; renderSerial(); renderCarList(); } };
+
+// ---- 툴바 / 차량 불러오기 ----
+$("mapSel").onchange = e => setMap(e.target.value);
+$("speedSel").onchange = e => { SIM.speed = +e.target.value; simSave(); };
+$("allRun").onclick = () => SIM.cars.forEach(runCar);
+$("allPause").onclick = () => SIM.cars.forEach(pauseCar);
+$("allStop").onclick = () => SIM.cars.forEach(stopCar);
+$("viewFit").onclick = fitSim;
+const addTab1 = () => { if (editingCar) { $("addMsg").textContent = "탭 1에서 레이아웃 편집을 먼저 끝내세요."; return; } const c = addCar(toJSON()); if (c) $("addMsg").textContent = `${c.name}을(를) 올렸습니다.`; };
+const sampleDesign = () => { const old = S; try { makeDefault(); return toJSON(); } finally { S = old; } };
+const addSample = () => { const c = addCar(sampleDesign(), { code: SAMPLE_CODE }); if (c) { c.name = `샘플 ${c.id}`; simSave(); renderSimUI(); $("addMsg").textContent = `${c.name}을(를) 올렸습니다 (탭 1과 상관없는 기본 차량).`; } };
+$("addSample").onclick = addSample; $("addSample").onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); addSample(); } };
+$("addFromTab1").onclick = addTab1; $("addFromTab1").onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); addTab1(); } };
+$("addFromFile").onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader();
+  r.onload = () => { try { const c = addCar(JSON.parse(r.result)); if (c) $("addMsg").textContent = `${f.name} → ${c.name}`; } catch (err) { $("addMsg").textContent = "JSON을 읽지 못했습니다: " + err.message; } };
+  r.readAsText(f); e.target.value = ""; };
+
+// ---- 탭 1에서 차량 레이아웃 편집 ----
+let ownS = null;
+function startLayoutEdit(car) {
+  if (editingCar) return;
+  ownS = S; S = fromJSON(car.design); editingCar = car;
+  sel = null; wiring = null; buildBody(); changed(true); $("editName").textContent = car.name; $("editBanner").hidden = false;
+  showTab("vehicle"); requestAnimationFrame(fit);
+}
+function endLayoutEdit(apply) {
+  const car = editingCar; if (!car) return;
+  if (apply) { car.design = toJSON(); if (car.status !== "stopped") stopCar(car); car.cfg = carConfig(car); car.hexSrc = car.hexSrc; }
+  S = ownS; ownS = null; editingCar = null; sel = null; wiring = null;
+  $("editBanner").hidden = true; buildBody(); changed(true); simSave();
+  SIM.sel = car.id; showTab("sim"); renderSimUI();
+}
+$("editDone").onclick = () => endLayoutEdit(true);
+$("editCancel").onclick = () => endLayoutEdit(false);
+
+async function initSim() {
+  MAPS_READY = fetch(new URL("maps.json", location.href)).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+  try { MAPS = await MAPS_READY; } catch (e) { $("simMsg").hidden = false; $("simMsg").textContent = "맵 파일(maps.json)을 불러오지 못했습니다."; MAPS = []; }
+  $("mapSel").innerHTML = MAPS.map(m => `<option value="${m.id}">${esc(m.title)}</option>`).join("");
+  if (!simLoad()) { const c = addCar(sampleDesign(), { quiet: true }); if (c) c.name = `샘플 ${c.id}`; simSave(); }
+  if (!MAPS.find(m => m.id === SIM.mapId)) SIM.mapId = MAPS[0]?.id;
+  $("mapSel").value = SIM.mapId; $("speedSel").value = String(SIM.speed);
+  SIM.sel = SIM.cars[0]?.id ?? null;
+  renderSimUI(); fitSim();
+  requestAnimationFrame(simFrame);
+}
+
+
+// ================= 시작 =================
+if (fresh) makeDefault();
+buildBody(); setWires(showWires); loadColors(); changed(true);
+let tab = "vehicle"; try { tab = localStorage.getItem("irsim.tab") || "vehicle"; } catch (e) {}
+if (location.hash === "#sim") tab = "sim"; if (location.hash === "#vehicle") tab = "vehicle";
+if (tab !== "sim") tab = "vehicle";
+showTab(tab);
+requestAnimationFrame(() => { resize(); fit(); });
+initSim();
+})();
+</script>
