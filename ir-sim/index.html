@@ -638,7 +638,7 @@ div.CodeMirror-selected, .CodeMirror-focused div.CodeMirror-selected { backgroun
     <div class="card">
       <div class="card-h"><h2>차량 불러오기</h2><span class="sub" id="carCount"></span></div>
       <div class="parts">
-        <div class="part" id="addSample" role="button" tabindex="0" style="grid-column:1/-1"><b><i style="background:var(--car1)"></i>샘플 차량</b><span>기본 차량(앞 11ch · 뒤 5ch, 회로도 배선) + P 제어 코드</span></div>
+        <div class="part" id="addSample" role="button" tabindex="0" style="grid-column:1/-1"><b><i style="background:var(--car1)"></i>샘플 차량</b><span>기본 차량(앞 11ch · 뒤 5ch, 회로도 배선) + P 제어 샘플 코드</span></div>
         <div class="part" id="addFromTab1" role="button" tabindex="0"><b><i style="background:var(--accent)"></i>탭 1 차량</b><span>지금 탭 1에 있는 배치·배선 그대로</span></div>
         <label class="part" for="addFromFile" tabindex="0"><b><i style="background:var(--muted)"></i>JSON 파일</b><span>탭 1에서 저장한 차량 설정</span><input id="addFromFile" type="file" accept=".json,application/json" hidden></label>
       </div>
@@ -1516,22 +1516,45 @@ $("tabVehicle").onclick = () => showTab("vehicle"); $("tabSim").onclick = () => 
 // ======================================================================
 const SIM_STORE = "irsim.sim.v1", MAX_CARS = 4;
 const CAR_COLORS = ["car1", "car2", "car3", "car4"];
-const SAMPLE_CODE = `// 샘플: IR 11ch(아날로그 A0~A10) 가중평균 + 비례 조향 라인트레이서
+const SAMPLE_CODE = `// 샘플: 앞 IR 11ch + 뒤 IR 5ch 가중평균 + 비례(P) 조향 라인트레이서
 // 탭 1 기본 배선 기준: 조향 서보 D9, 모터 PWM D6 / DIR D7 (HIGH = 후진)
+//   앞 11ch 아날로그 A0~A10 (센서 0~10), 뒤 5ch 아날로그 A11~A15 (센서 1~5)
 // 흰 바닥 + 검은 선 코스(N1~N5)용. 검은 바닥 + 흰 선 코스에서는 LINE_IS_DARK를 0으로.
+//
+// 조향 = 중립 + KP·eF + KR·(eF − eR)
+//   eF: 앞 센서열에서 본 선 위치 [mm, 오른쪽 +]
+//   eR: 뒤 센서열에서 본 선 위치 [mm, 오른쪽 +]
+//   eF − eR: 차체가 선에 비해 얼마나 비스듬한지 (둘 다 비례항)
 #include <Servo.h>
 
 #define LINE_IS_DARK 1
 const int STEER_PIN = 9, PWM_PIN = 6, DIR_PIN = 7;
 const int NEUTRAL = 110, S_MIN = 75, S_MAX = 145;
 const int BASE_PWM = 70;          // 약 50 cm/s
-const float KP = 0.30;            // 서보° / mm
+const float KP = 0.30;            // 서보° / mm (앞 위치 오차)
+const float KR = 0.15;            // 서보° / mm (앞뒤 차이 = 방향 오차)
 
-// 센서 번호 0~10 → A0~A10, 좌우 위치 [mm, 오른쪽 +] (0 중앙, 홀수 왼쪽, 짝수 오른쪽)
-const float SX[11] = {0, -12.5, 12.5, -37.5, 37.5, -62.5, 62.5, -87.5, 87.5, -112.5, 112.5};
+// 앞 11ch: 센서 번호 0~10 → A0~A10, 좌우 위치 [mm, 오른쪽 +] (0 중앙, 홀수 왼쪽, 짝수 오른쪽)
+const float FX[11] = {0, -12.5, 12.5, -37.5, 37.5, -62.5, 62.5, -87.5, 87.5, -112.5, 112.5};
+// 뒤 5ch: 센서 1~5 → A11~A15. 모듈을 뒤로 돌려 달아서 1번이 차의 오른쪽
+const float RX[5] = {47, 18, 0, -18, -47};
 
 Servo steer;
-float lastErr = 0;
+float lastF = 0, lastR = 0;
+
+// 가중평균 선 위치. 선을 못 보면 false
+bool linePos(int firstPin, int n, const float *x, float &pos) {
+  long sum = 0; float wsum = 0;
+  for (int i = 0; i < n; i++) {
+    int raw = analogRead(firstPin + i);
+    int s = LINE_IS_DARK ? 1023 - raw : raw;   // 선일수록 큰 값
+    if (s < 300) s = 0;
+    sum += s; wsum += x[i] * s;
+  }
+  if (sum <= 200) return false;
+  pos = wsum / sum;
+  return true;
+}
 
 void setup() {
   Serial.begin(115200);
@@ -1542,17 +1565,13 @@ void setup() {
 }
 
 void loop() {
-  long sum = 0; float wsum = 0;
-  for (int i = 0; i < 11; i++) {
-    int raw = analogRead(A0 + i);
-    int s = LINE_IS_DARK ? 1023 - raw : raw;   // 선일수록 큰 값
-    if (s < 300) s = 0;
-    sum += s; wsum += SX[i] * s;
-  }
-  float err = sum > 200 ? wsum / sum : lastErr;  // 선을 놓치면 마지막 방향 유지
-  lastErr = err;
+  float eF = lastF, eR = lastR;
+  bool seeF = linePos(A0, 11, FX, eF);    // 놓치면 마지막 값 유지
+  bool seeR = linePos(A11, 5, RX, eR);
+  lastF = eF; lastR = eR;
 
-  int angle = constrain(NEUTRAL + (int)(KP * err), S_MIN, S_MAX);
+  float corr = KP * eF + (seeF && seeR ? KR * (eF - eR) : 0);
+  int angle = constrain(NEUTRAL + (int)corr, S_MIN, S_MAX);
   steer.write(angle);
   digitalWrite(DIR_PIN, LOW);
   analogWrite(PWM_PIN, BASE_PWM);
@@ -1560,216 +1579,13 @@ void loop() {
   static unsigned long t0 = 0;
   if (millis() - t0 >= 200) {
     t0 = millis();
-    Serial.print("err="); Serial.print(err, 1);
+    Serial.print("eF="); Serial.print(eF, 1);
+    Serial.print(" eR="); Serial.print(eR, 1);
     Serial.print(" servo="); Serial.println(angle);
   }
 }
 `;
-const SAMPLE_PID = `// ================================================================
-// 라인트레이서 PID 샘플: 앞 IR 11ch + 뒤 IR 5ch, 조향 PID + 속도 PID, 가변 속도
-// (시뮬레이터 탭 1 기본 배치·배선 기준)
-//
-// 핀 배치:
-//   조향 서보   → D9  (Servo, 중립 110°, 범위 75~145°, 각도↑ = 우회전)
-//   구동 PWM    → D6  (analogWrite)
-//   구동 DIR    → D7  (LOW = 전진, HIGH = 후진)
-//   엔코더 A/B  → D2 (INT4) / D3 (INT5), CHANGE 인터럽트 4체배
-//   앞 IR 11ch  → A0~A10 (센서 0~10, 0번 중앙 · 홀수 왼쪽 · 짝수 오른쪽)
-//   뒤 IR 5ch   → A11~A15 (센서 1~5, 모듈을 뒤로 돌려 달아서 1번이 차의 오른쪽)
-//
-// 제어 구조 (10 ms 주기):
-//   1) 앞 11ch 가중평균 → eF [mm, 오른쪽 +]
-//      뒤 5ch 가중평균  → eR [mm, 오른쪽 +]
-//   2) 차체 방향 오차 head = atan2(eF − eR, 앞뒤 센서 간격) [deg]
-//      → 선이 차체와 얼마나 비스듬한지 (곡선 진입·출구 판단)
-//   3) 조향 PID: 보정 = Kp·eF + Kh·head + Ki·∫eF + Kd·d(eF)/dt
-//   4) 목표 속도: 직선(작은 |eF|·|head|)은 V_MAX, 곡선은 V_MIN 쪽으로 감속
-//                 선을 놓치면 V_LOST로 줄이고 마지막 방향으로 최대 조향
-//   5) 속도 PID: 엔코더 속도 → PWM = 피드포워드 + Kp·e + Ki·∫e
-//
-// 시리얼 (115200, 100 ms 주기):
-//   eF=<mm> eR=<mm> hd=<deg> sv=<servo> vr=<cm/s> v=<cm/s> pwm=<0~255>
-//
-// 게인은 시뮬레이터 기본 파라미터(PWM 255 = 200 cm/s 등)에서 잡은 값.
-// 실차에서는 다시 튜닝해야 함.
-// ================================================================
-
-#include <Servo.h>
-
-// --- 핀 ---
-const int STEER_PIN = 9;
-const int PWM_PIN   = 6;
-const int DIR_PIN   = 7;
-const int ENC_A     = 2;
-const int ENC_B     = 3;
-
-// --- 조향 ---
-const int STEER_NEUTRAL = 110;
-const int STEER_MIN     = 75;
-const int STEER_MAX     = 145;
-
-// --- 라인 센서 ---
-#define LINE_IS_DARK 1            // 흰 바닥 + 검은 선. 반대 코스면 0
-// 앞 11ch: 센서 번호 0~10의 좌우 위치 [mm, 오른쪽 +]
-const float FRONT_X[11] = {0, -12.5, 12.5, -37.5, 37.5, -62.5, 62.5, -87.5, 87.5, -112.5, 112.5};
-// 뒤 5ch: A11~A15 = 센서 1~5. 뒤를 향해 달려 있어 1번이 차의 오른쪽
-const float REAR_X[5]   = {47.0, 18.0, 0.0, -18.0, -47.0};
-const float SENSOR_GAP  = 380.0;  // 앞 센서열 ~ 뒤 센서열 거리 [mm]
-const int   IR_ACTIVE_MIN = 250;  // (선 강도) 이 값 미만은 0으로 (바닥 얼룩·노이즈 컷)
-const int   SUM_MIN       = 300;  // 강도 합이 이보다 작으면 미감지
-
-// --- 조향 PID (보정 단위 = 서보 각도°) ---
-float Kp_s = 0.32;                // °/mm
-float Kh_s = 0.9;                 // °/deg (방향 오차)
-float Ki_s = 0.0;                 // °/(mm·s)  적분은 기본 꺼 둠 (트림 오차가 크면 0.05~0.2)
-float Kd_s = 0.012;               // °/(mm/s)
-const float I_LIMIT_S = 60.0;     // 적분 상한 [mm·s]
-
-// --- 속도 PID (보정 단위 = PWM) ---
-const float V_MAX  = 140.0;       // 직선 목표 속도 [cm/s]
-const float V_MIN  = 70.0;        // 곡선 목표 속도 [cm/s]
-const float V_LOST = 40.0;        // 선 놓쳤을 때 [cm/s]
-const float ACCEL  = 250.0;       // 목표 속도 증가 한계 [cm/s²] (감속은 즉시)
-float Kp_v = 0.8;                 // PWM/(cm/s)
-float Ki_v = 2.0;                 // PWM/(cm/s·s)
-const float FF_V  = 255.0 / 200.0;// 피드포워드 PWM/(cm/s)  (PWM 255 ≈ 200 cm/s)
-const float PWM_DB = 10;          // 모터 드라이버 데드밴드
-const float I_LIMIT_V = 60.0;     // 속도 적분 상한 [PWM]
-
-// --- 엔코더 ---
-const float COUNTS_PER_CM = 11.0 * 4 * 8 / (3.14159 * 6.5);   // 11 PPR × 4체배 × 기어비 8 / 바퀴 둘레
-volatile long encCount = 0;
-volatile uint8_t prevAB = 0;
-
-// --- 상태 ---
-Servo steer;
-const unsigned long CTRL_MS = 10;
-unsigned long lastCtrl = 0, lastLog = 0;
-float eF = 0, eR = 0, head = 0;
-float eFPrev = 0, iSteer = 0;
-float vRef = 0, vMeas = 0, iSpeed = 0;
-long  encPrev = 0;
-int   servoOut = STEER_NEUTRAL, pwmOut = 0;
-bool  frontSeen = false, rearSeen = false;
-float lastSide = 0;               // 마지막으로 선이 있던 쪽 (오른쪽 +)
-
-// ================================================================
-void encISR() {                   // A·B 양 엣지, 상태표로 ±1
-  static const int8_t T[16] = {0, -1, 1, 0, 1, 0, 0, -1, -1, 0, 0, 1, 0, 1, -1, 0};
-  uint8_t ab = (digitalRead(ENC_A) << 1) | digitalRead(ENC_B);
-  encCount += T[(prevAB << 2) | ab];
-  prevAB = ab;
-}
-
-void setup() {
-  Serial.begin(115200);
-  pinMode(DIR_PIN, OUTPUT);
-  digitalWrite(DIR_PIN, LOW);
-  analogWrite(PWM_PIN, 0);
-
-  pinMode(ENC_A, INPUT_PULLUP);
-  pinMode(ENC_B, INPUT_PULLUP);
-  prevAB = (digitalRead(ENC_A) << 1) | digitalRead(ENC_B);
-  attachInterrupt(digitalPinToInterrupt(ENC_A), encISR, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(ENC_B), encISR, CHANGE);
-
-  steer.attach(STEER_PIN);
-  steer.write(STEER_NEUTRAL);
-
-  delay(300);
-  Serial.println("PID DUAL READY");
-  lastCtrl = millis();
-}
-
-void loop() {
-  unsigned long now = millis();
-  if (now - lastCtrl >= CTRL_MS) {
-    float dt = (now - lastCtrl) / 1000.0;
-    lastCtrl = now;
-    readLines();
-    steeringControl(dt);
-    speedControl(dt);
-  }
-  if (now - lastLog >= 100) {
-    lastLog = now;
-    Serial.print("eF="); Serial.print(eF, 1);
-    Serial.print(" eR="); Serial.print(eR, 1);
-    Serial.print(" hd="); Serial.print(head, 1);
-    Serial.print(" sv="); Serial.print(servoOut);
-    Serial.print(" vr="); Serial.print(vRef, 0);
-    Serial.print(" v="); Serial.print(vMeas, 0);
-    Serial.print(" pwm="); Serial.println(pwmOut);
-  }
-}
-
-// ================================================================
-// 1) 센서 → 선 위치 (가중평균)
-// ================================================================
-int lineStrength(int pin) {
-  int raw = analogRead(pin);
-  int s = LINE_IS_DARK ? 1023 - raw : raw;     // 선일수록 큰 값
-  return s < IR_ACTIVE_MIN ? 0 : s;
-}
-
-void readLines() {
-  long sum = 0; float wsum = 0;
-  for (int i = 0; i < 11; i++) { int s = lineStrength(A0 + i); sum += s; wsum += FRONT_X[i] * s; }
-  frontSeen = sum >= SUM_MIN;
-  if (frontSeen) { eF = wsum / sum; lastSide = eF; }
-
-  sum = 0; wsum = 0;
-  for (int i = 0; i < 5; i++) { int s = lineStrength(A11 + i); sum += s; wsum += REAR_X[i] * s; }
-  rearSeen = sum >= SUM_MIN;
-  if (rearSeen) eR = wsum / sum;
-
-  // 앞·뒤 모두 보일 때만 방향 오차 갱신
-  if (frontSeen && rearSeen) head = atan2(eF - eR, SENSOR_GAP) * 57.2958;
-}
-
-// ================================================================
-// 2) 조향 PID
-// ================================================================
-void steeringControl(float dt) {
-  float corr;
-  if (frontSeen) {
-    float dE = (eF - eFPrev) / dt;
-    if (Ki_s != 0) iSteer = constrain(iSteer + eF * dt, -I_LIMIT_S, I_LIMIT_S);
-    corr = Kp_s * eF + Kh_s * head + Ki_s * iSteer + Kd_s * dE;
-    eFPrev = eF;
-  } else {
-    // 선을 놓침: 마지막으로 본 쪽으로 최대 조향, 미분·적분 정지
-    corr = lastSide >= 0 ? (STEER_MAX - STEER_NEUTRAL) : (STEER_MIN - STEER_NEUTRAL);
-  }
-  servoOut = constrain(STEER_NEUTRAL + (int)corr, STEER_MIN, STEER_MAX);
-  steer.write(servoOut);
-}
-
-// ================================================================
-// 3) 가변 목표 속도 + 속도 PID
-// ================================================================
-void speedControl(float dt) {
-  // 엔코더 속도 (1차 저역통과)
-  noInterrupts(); long c = encCount; interrupts();
-  float v = (c - encPrev) / COUNTS_PER_CM / dt;
-  encPrev = c;
-  vMeas += 0.3 * (v - vMeas);
-
-  // 곡선 정도: 앞 센서 위치와 방향 오차를 0~1로
-  float bend = max(fabs(eF) / 60.0, fabs(head) / 12.0);
-  if (bend > 1) bend = 1;
-  float target = frontSeen ? V_MAX - (V_MAX - V_MIN) * bend : V_LOST;
-  // 가속은 천천히, 감속은 즉시
-  if (target > vRef) vRef = min(target, vRef + ACCEL * dt); else vRef = target;
-
-  float e = vRef - vMeas;
-  iSpeed = constrain(iSpeed + Ki_v * e * dt, -I_LIMIT_V, I_LIMIT_V);
-  float u = (vRef > 1 ? PWM_DB + FF_V * vRef * (255 - PWM_DB) / 255.0 : 0) + Kp_v * e + iSpeed;
-  pwmOut = constrain((int)u, 0, 255);       // 이 샘플은 후진 안 씀
-  digitalWrite(DIR_PIN, LOW);
-  analogWrite(PWM_PIN, pwmOut);
-}
-`;
-const SAMPLES = [["P 제어 (앞 11ch만)", SAMPLE_CODE], ["PID · 앞 11ch + 뒤 5ch · 가변 속도", SAMPLE_PID]];
+const SAMPLES = [["P 제어 (앞 11ch + 뒤 5ch)", SAMPLE_CODE]];
 let MAPS = [], MAPS_READY = null;
 const SIM = { mapId: "N1_oval", speed: 1, cars: [], sel: null, follow: null, dock: "code", dockOpen: true };
 let simSeq = 1;

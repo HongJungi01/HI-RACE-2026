@@ -8,7 +8,7 @@
 ## 구성
 - 탭 1 차량 모델: 부품 배치·배선, 차량 파라미터, JSON 저장/불러오기
 - 탭 2 시뮬레이션: 맵 선택, 차량별 실행/일시정지/정지, 출발 위치, 차량별 코드 에디터·Serial
-- 샘플 코드: `sample_linetracer.ino`(앞 11ch P 제어), `sample_pid_dual.ino`(앞 11ch + 뒤 5ch, 조향·속도 PID, 가변 속도)
+- 샘플 코드: `sample_linetracer.ino`(앞 11ch + 뒤 5ch, P 제어)
 
 ## 주의
 - 차량·코드는 브라우저(localStorage)에 저장된다. 공유는 차량 JSON과 .ino 파일로.
