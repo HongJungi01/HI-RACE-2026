@@ -12,7 +12,7 @@
 #define LINE_IS_DARK 1
 const int STEER_PIN = 9, PWM_PIN = 6, DIR_PIN = 7;
 const int NEUTRAL = 110, S_MIN = 75, S_MAX = 145;
-const int BASE_PWM = 70;          // 약 50 cm/s
+const int BASE_PWM = 70;          // 약 53 cm/s (시뮬레이터 기본 모터 파라미터)
 const float KP = 0.30;            // 서보° / mm (앞 위치 오차)
 const float KR = 0.15;            // 서보° / mm (앞뒤 차이 = 방향 오차)
 

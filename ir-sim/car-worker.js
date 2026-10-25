@@ -170,7 +170,7 @@ function boot() {
   const P0 = cfg.params, uni = () => Math.random() * 2 - 1;
   irVar = cfg.ir.map(() => ({ g: 1 + (P0.irVar || 0) / 100 * uni(), o: (P0.irVar || 0) / 100 * 0.5 * (P0.irWhite - P0.irBlack) * uni() }));
   floorSeed = Math.random() * 1000;
-  veh = { x: cfg.start.x, y: cfg.start.y, yaw: cfg.start.yaw, v: 0, vy: 0, r: 0, servo: cfg.params.sNeutral, wheel: cfg.params.sNeutral, q: 0, delta: 0, pwm: 0, dir: 0 };
+  veh = { x: cfg.start.x, y: cfg.start.y, yaw: cfg.start.yaw, v: 0, i: 0, vy: 0, r: 0, servo: cfg.params.sNeutral, wheel: cfg.params.sNeutral, q: 0, delta: 0, pwm: 0, dir: 0 };
   servoQ = [];
   trail = [[veh.x, veh.y]];
 }
@@ -194,6 +194,34 @@ function updateIR() {
   }
 }
 
+// 구동: DC 모터(역기전력·저항·인덕턴스·마찰) + 감속기 + 차량 질량·구름저항
+//   V = ±duty·Vbat, L di/dt = V − R i − Ke ω, F = gear·(Kt i − T_f)/r − Crr m g
+//   Ke(=Kt)는 "PWM 255 이론 최고속도"(마찰 무시)에서 역산
+function driveStep(P, duty, rev, brake, dt) {
+  const r = P.wheelD / 200, gear = P.gear, m = P.mass || 1.5, g = 9.81;
+  const vbat = P.vbat || 7.4, R = Math.max(0.05, P.mR || 1.5), Lm = Math.max(1e-6, (P.mL ?? 0.1) / 1000);
+  const Ke = vbat / (gear * (P.vmax / 100) / r), Tf = (P.mFric || 0) / 1000;
+  const meq = m + (P.jEq || 0), Fmax = (P.mu || 0.8) * m * g * 0.5;   // 구동륜 견인 한계 (하중 절반 가정)
+  const V = (rev ? -1 : 1) * duty * vbat, N = 10, h = dt / N, te = Lm / R;
+  let v = veh.v / 100, i = veh.i || 0;
+  for (let k = 0; k < N; k++) {
+    const w = gear * v / r;
+    const coast = !P.slowDecay && duty === 0;
+    const iss = coast ? 0 : (V - Ke * w) / R;
+    i = iss + (i - iss) * Math.exp(-h / te);
+    const Fm = gear * Ke * i / r;                              // 모터 힘
+    const Fres = gear * Tf / r + (P.crr ?? 0.03) * m * g + (brake ? 0.6 * m * g : 0);   // 마찰·구름·브레이크 (속도 반대)
+    let F = clamp(Fm, -Fmax, Fmax);
+    if (Math.abs(v) < 1e-4) {                                  // 정지: 정지마찰을 넘을 때만 출발
+      if (Math.abs(F) <= Fres) { v = 0; continue; }
+      F -= Math.sign(F) * Fres;
+    } else F -= Math.sign(v) * Fres;
+    const v1 = v + F / meq * h;
+    v = (v !== 0 && Math.sign(v1) !== Math.sign(v) && Math.abs(Fm) <= Fres) ? 0 : v1;
+  }
+  veh.v = v * 100; veh.i = i;
+}
+
 function vehicleStep(dt, cycle0) {
   const P = cfg.params, act = cfg.act, c = mega.cpu.cycles;
   const ms = meas.steer;
@@ -210,9 +238,7 @@ function vehicleStep(dt, cycle0) {
   let duty = 0; if (mp) duty = fresh(mp, c) && mp.per > 0 ? mp.hi / mp.per : (mp.state ? 1 : 0);
   const pwm = Math.round(duty * 255), rev = act.dir >= 0 && (mega.getPin(act.dir) === !!P.dirRev);
   const mb = meas.brake, brake = !!(mb && fresh(mb, c) && servoDeg(mb.hi) >= 20);
-  const mag = pwm <= P.db ? 0 : P.vmax * (pwm - P.db) / (255 - P.db);
-  const vCmd = brake ? 0 : (rev ? -mag : mag), tau = brake ? P.brakeTau : P.tau;
-  veh.v = tau > 0 ? vCmd + (veh.v - vCmd) * Math.exp(-dt / tau) : vCmd;
+  driveStep(P, duty, rev, brake, dt);
   veh.pwm = pwm; veh.dir = rev ? 1 : 0;
   const d = P.sSign * P.sGain * (veh.wheel - P.sNeutral - (P.sTrim || 0)) * D2R;
   veh.delta = d;
@@ -260,7 +286,7 @@ self.onmessage = ({ data: m }) => {
     if (m.type === "reset") { if (m.cfg) cfg = m.cfg; boot(); self.postMessage(state()); return; }
     if (m.type === "step") {
       others = m.others || [];
-      if (m.pose) { veh.x = m.pose.x; veh.y = m.pose.y; veh.yaw = m.pose.yaw; veh.v = 0; veh.vy = 0; veh.r = 0; }
+      if (m.pose) { veh.x = m.pose.x; veh.y = m.pose.y; veh.yaw = m.pose.yaw; veh.v = 0; veh.i = 0; veh.vy = 0; veh.r = 0; }
       for (let i = 0; i < m.n; i++) {
         const c0 = mega.cpu.cycles;
         vehicleStep(0.001, c0); updateIR(); mega.runTo(c0 + 16000);
