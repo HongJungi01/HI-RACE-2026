@@ -123,6 +123,14 @@ textarea { min-height: 160px; resize: vertical; line-height: 1.4; }
 .sim-panel { grid-area: panel; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); }
 @media (max-width: 960px) { .sim-panel { position: static; } }
 .dock { grid-area: dock; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px 10px; }
+.garage-list { display: flex; flex-direction: column; gap: 6px; max-height: 340px; overflow: auto; }
+.grow-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; padding: 7px 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--field); }
+.grow-item b { font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grow-item .meta { grid-column: 1; font-size: 11.5px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grow-item .acts { grid-column: 2; grid-row: 1 / span 2; display: flex; gap: 4px; }
+.grow-item.mine { border-left: 3px solid var(--accent); }
+#garageFilter { width: 100%; box-sizing: border-box; padding: 5px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--field); color: var(--fg); font: inherit; font-size: 12.5px; }
+.garage-mine { display: flex; flex-direction: column; gap: 4px; }
 .dock-h { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; }
 .dock-h h2 { margin: 0; font-size: 13.5px; }
 .dock-body { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 10px; align-items: start; }
@@ -644,6 +652,17 @@ div.CodeMirror-selected, .CodeMirror-focused div.CodeMirror-selected { backgroun
       </div>
       <p class="msg" id="addMsg">차는 최대 4대. 새 차는 맵 출발선 뒤에 순서대로 놓이고, 샘플 라인트레이서 코드가 들어갑니다.</p>
     </div>
+    <div class="card" id="garageCard">
+      <div class="card-h"><h2>공유 차고</h2><span class="sub" id="garageCount"></span></div>
+      <p class="sub" id="garageInfo">불러오는 중…</p>
+      <div class="garage-mine" id="garageUp" hidden>
+        <button type="button" id="garageUpload" class="on">선택한 차를 공유 차고에 올리기</button>
+        <p class="sub">레이아웃 + 코드가 함께 올라갑니다. 같은 이름이면 덮어씁니다.</p>
+      </div>
+      <div class="row" style="gap:6px"><button type="button" id="garageLogin" hidden>Google로 로그인</button><button type="button" id="garageLogout" hidden>로그아웃</button></div>
+      <input id="garageFilter" type="search" placeholder="차 이름·올린 사람 검색" aria-label="공유 차고 검색" hidden>
+      <div class="garage-list" id="garageList"></div>
+    </div>
     <div class="card" id="simSelCard">
       <div class="card-h"><h2 id="sselTitle">선택한 차량</h2><span class="status" id="sselStatus"></span></div>
       <div id="sselBody"></div>
@@ -691,6 +710,8 @@ div.CodeMirror-selected, .CodeMirror-focused div.CodeMirror-selected { backgroun
 </main>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="garage-config.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/clike/clike.min.js"></script>
 <script>
 (() => {
@@ -2131,6 +2152,121 @@ function endLayoutEdit(apply) {
 $("editDone").onclick = () => endLayoutEdit(true);
 $("editCancel").onclick = () => endLayoutEdit(false);
 
+
+// ---- 공유 차고: 팀원이 올린 차량(레이아웃 + 코드)을 바로 맵에 올리기 ----
+// 백엔드 두 가지: claude.ai 아티팩트 안 → 아티팩트 공유 DB (garage/<사용자 id> 문서에 그 사람의 차 목록)
+//                 그 밖(GitHub Pages 등) → Supabase (garage-config.js에 URL·공개 키, 테이블 garage_cars, Google 로그인)
+const GARAGE = { be: null, entries: [], uid: null };
+const MAX_MINE = 8;
+const fmtTime = ms => { const d = new Date(ms); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
+const gInfo = s => { $("garageInfo").textContent = s; };
+
+// 백엔드 공통 모양: { uid, canWrite, label, subscribe(cb(entries)), upsert(entry), remove(id), login?, logout? }
+async function claudeBackend() {
+  const [db, user] = await Promise.all([claude.use("db"), claude.use("user")]);
+  if (!db) return null;
+  const uid = user ? await user.id() : null, cw = user ? await user.can("data.write") : null;
+  let names = {}, writing = Promise.resolve();
+  const write = mutate => (writing = writing.then(async () => {
+    const ref = db.doc("garage/" + uid), snap = await ref.get(), cur = snap.exists ? snap.data() : {};
+    const cars = mutate(structuredClone(cur.cars || []));
+    const body = { owner: uid, cars, updatedAt: Date.now() };
+    if (JSON.stringify(body).length > 250000) throw { code: "too_big", message: "내 차고 용량(250 KB)을 넘습니다. 안 쓰는 차를 지우세요." };
+    await ref.set(body);
+  })).catch(e => { writing = Promise.resolve(); throw e; });
+  return { uid, canWrite: !!uid && cw !== false, label: "claude.ai 공유 DB",
+    subscribe(cb) {
+      db.collection("garage").onSnapshot(async snap => {
+        const docs = snap.docs.filter(d => d.exists).map(d => ({ uid: d.id, ...d.data() }));
+        if (user && docs.length) { try { const ps = await user.profiles(docs.map(d => d.uid)); for (const d of docs) names[d.uid] = ps[d.uid]?.name || ""; } catch (e) {} }
+        cb(docs.flatMap(d => (d.cars || []).map(c => ({ ...c, uid: d.uid, who: names[d.uid] || "팀원" }))));
+      }, e => gInfo("공유 차고 연결이 끊겼습니다 (" + e.code + "). 새로 고침하세요."));
+    },
+    upsert: entry => write(cars => { const i = cars.findIndex(c => c.name === entry.name);
+      if (i >= 0) { entry.id = cars[i].id; cars[i] = entry; } else { if (cars.length >= MAX_MINE) throw { code: "too_big", message: `한 사람당 ${MAX_MINE}대까지 올릴 수 있습니다.` }; cars.push(entry); }
+      return cars; }),
+    remove: id => write(cars => cars.filter(c => c.id !== id)) };
+}
+async function supabaseBackend() {
+  const C = window.GARAGE_CONFIG;
+  if (!C || !C.url || !C.anonKey || !window.supabase) return null;
+  const sb = window.supabase.createClient(C.url, C.anonKey);
+  const { data: { session } } = await sb.auth.getSession();
+  const u = session?.user || null, uid = u?.id || null;
+  const myName = u ? (u.user_metadata?.full_name || u.user_metadata?.name || (u.email || "").split("@")[0] || "팀원") : "";
+  const map = r => ({ id: r.id, name: r.name, note: r.note || "", design: r.design, code: r.code, updatedAt: Date.parse(r.updated_at), uid: r.owner, who: r.owner_name || "팀원" });
+  const err = e => ({ code: e.code || "error", message: e.message });
+  const be = { uid, canWrite: !!uid, label: "Supabase", who: myName,
+    async subscribe(cb) {
+      const load = async () => { const { data, error } = await sb.from("garage_cars").select("id,owner,owner_name,name,note,design,code,updated_at").order("updated_at", { ascending: false }).limit(200);
+        if (error) { gInfo("공유 차고를 읽지 못했습니다: " + error.message); return; } cb(data.map(map)); };
+      await load();
+      try { sb.channel("garage").on("postgres_changes", { event: "*", schema: "public", table: "garage_cars" }, load).subscribe(); } catch (e) {}
+      be.reload = load;
+    },
+    async upsert(entry) {
+      const { count } = await sb.from("garage_cars").select("id", { count: "exact", head: true }).eq("owner", uid);
+      const { data: same } = await sb.from("garage_cars").select("id").eq("owner", uid).eq("name", entry.name).maybeSingle();
+      if (!same && count >= MAX_MINE) throw { code: "too_big", message: `한 사람당 ${MAX_MINE}대까지 올릴 수 있습니다.` };
+      const { error } = await sb.from("garage_cars").upsert({ owner: uid, owner_name: myName, name: entry.name, note: entry.note, design: entry.design, code: entry.code, updated_at: new Date().toISOString() }, { onConflict: "owner,name" });
+      if (error) throw err(error); await be.reload?.();
+    },
+    async remove(id) { const { error } = await sb.from("garage_cars").delete().eq("id", id); if (error) throw err(error); await be.reload?.(); },
+    login: () => sb.auth.signInWithOAuth({ provider: "google", options: { redirectTo: location.origin + location.pathname, queryParams: { prompt: "select_account" } } }),
+    logout: async () => { await sb.auth.signOut(); location.reload(); } };
+  return be;
+}
+async function initGarage() {
+  let be = null;
+  if (window.claude?.use) be = await claudeBackend();
+  if (!be) be = await supabaseBackend();
+  if (!be) { gInfo("공유 차고는 팀 GitHub Pages 버전(hongjungi01.github.io/HI-RACE-2026/ir-sim/)에서 쓸 수 있습니다. 여기서는 탭 1의 JSON과 .ino 파일로 주고받으세요."); return; }
+  GARAGE.be = be; GARAGE.uid = be.uid;
+  $("garageFilter").hidden = false; $("garageUp").hidden = !be.canWrite;
+  $("garageLogin").hidden = !(be.login && !be.uid); $("garageLogout").hidden = !(be.logout && be.uid);
+  gInfo(be.canWrite ? `팀원이 올린 차를 '맵에 올리기'로 바로 불러와 주행할 수 있습니다.${be.who ? ` (${be.who}로 로그인)` : ""}`
+    : be.login ? "목록은 누구나 볼 수 있고, 올리려면 Google로 로그인하세요." : "읽기 전용입니다. 올리려면 공유 권한이 Contributor 이상이어야 합니다.");
+  be.subscribe(es => { GARAGE.entries = es; renderGarage(); });
+}
+function renderGarage() {
+  const q = ($("garageFilter").value || "").trim().toLowerCase(), list = $("garageList");
+  const all = GARAGE.entries.map(e => ({ ...e, mine: !!GARAGE.uid && e.uid === GARAGE.uid })).map(e => ({ ...e, who: e.mine ? "나" : e.who }));
+  const es = all.filter(e => !q || (e.name || "").toLowerCase().includes(q) || (e.who || "").toLowerCase().includes(q)).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  $("garageCount").textContent = all.length ? `${all.length}대` : "";
+  list.innerHTML = es.length ? "" : `<p class="sub">${all.length ? "검색 결과가 없습니다." : "아직 올라온 차가 없습니다."}</p>`;
+  for (const e of es) {
+    const row = document.createElement("div"); row.className = "grow-item" + (e.mine ? " mine" : "");
+    const b = document.createElement("b"); b.textContent = e.name || "(이름 없음)";
+    const meta = document.createElement("span"); meta.className = "meta"; meta.textContent = `${e.who} · ${fmtTime(e.updatedAt || 0)}${e.note ? " · " + e.note : ""}`;
+    const acts = document.createElement("span"); acts.className = "acts";
+    const add = document.createElement("button"); add.type = "button"; add.textContent = "맵에 올리기"; add.className = "on"; add.onclick = () => takeFromGarage(e);
+    acts.append(add);
+    if (e.mine) { const del = document.createElement("button"); del.type = "button"; del.textContent = "삭제"; del.className = "danger";
+      del.onclick = async () => { if (!(del.dataset.arm && Date.now() - +del.dataset.arm < 3000)) { del.dataset.arm = Date.now(); del.textContent = "한 번 더"; return; }
+        try { await GARAGE.be.remove(e.id); gInfo("공유 차고에서 지웠습니다."); } catch (er) { gInfo(`지우지 못했습니다 (${er.message || er.code}).`); } };
+      acts.append(del); }
+    row.append(b, acts, meta); list.append(row);
+  }
+}
+function takeFromGarage(e) {
+  if (SIM.cars.length >= MAX_CARS) { gInfo(`맵에는 최대 ${MAX_CARS}대까지 올릴 수 있습니다. 한 대를 삭제하세요.`); return; }
+  const c = addCar(e.design, { code: e.code || SAMPLE_CODE });
+  if (!c) { gInfo("이 차의 설정을 읽지 못했습니다."); return; }
+  c.name = (e.name || "차").slice(0, 24) + (e.mine ? "" : ` (${e.who})`);
+  simSave(); renderSimUI(); gInfo(`${c.name}을(를) 맵에 올렸습니다. ▶ 실행하면 컴파일 후 주행합니다.`);
+}
+$("garageUpload").onclick = async () => {
+  const car = selCar(); if (!car || !GARAGE.be?.canWrite) { gInfo("올릴 차를 먼저 선택하세요."); return; }
+  const name = (car.name.trim() || "내 차").slice(0, 40), had = GARAGE.entries.some(e => e.uid === GARAGE.uid && e.name === name);
+  const entry = { id: "c" + Date.now().toString(36), name, note: "", design: car.design, code: car.code, updatedAt: Date.now() };
+  gInfo(`${name} 올리는 중…`);
+  try { await GARAGE.be.upsert(entry); gInfo(`${name}을(를) 공유 차고에 ${had ? "덮어썼습니다" : "올렸습니다"}.`); }
+  catch (e) { gInfo(e.code === "too_big" ? e.message : e.code === "invalid_argument" || e.code === "42501" ? "올릴 권한이 없습니다." : `올리지 못했습니다 (${e.message || e.code}).`); }
+};
+$("garageLogin").onclick = () => GARAGE.be?.login?.();
+$("garageLogout").onclick = () => GARAGE.be?.logout?.();
+$("garageFilter").oninput = renderGarage;
+
 async function initSim() {
   MAPS_READY = fetch(new URL("maps.json", location.href)).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
   try { MAPS = await MAPS_READY; } catch (e) { $("simMsg").hidden = false; $("simMsg").textContent = "맵 파일(maps.json)을 불러오지 못했습니다."; MAPS = []; }
@@ -2141,6 +2277,7 @@ async function initSim() {
   SIM.sel = SIM.cars[0]?.id ?? null;
   renderSimUI(); fitSim();
   requestAnimationFrame(simFrame);
+  initGarage();
 }
 
 

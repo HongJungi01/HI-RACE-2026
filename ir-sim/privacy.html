@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>개인정보처리방침 · IR 라인트레이서 시뮬레이터</title>
+<style>
+:root { --bg:#f6f7f4; --fg:#1d2420; --muted:#5b655f; --line:#d4d9d1; --accent:#1f7a5a; }
+@media (prefers-color-scheme: dark) { :root { --bg:#121614; --fg:#e3e8e4; --muted:#9aa59f; --line:#2c3530; --accent:#4cc39a; } }
+body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.7 "Pretendard","Malgun Gothic",system-ui,sans-serif; }
+main { max-width:720px; margin:0 auto; padding:32px 16px 64px; }
+h1 { font-size:22px; margin:0 0 4px; } h2 { font-size:16px; margin:28px 0 6px; }
+p, li { color:var(--fg); } .sub { color:var(--muted); font-size:13px; }
+a { color:var(--accent); } ul { padding-left:20px; }
+</style></head>
+<body><main>
+<h1>개인정보처리방침</h1>
+<p class="sub">IR 라인트레이서 시뮬레이터 (HI-RACE 1/10 IR 라인트레이서 팀) · 시행일 2026-10-26</p>
+
+<h2>1. 수집하는 정보</h2>
+<p>시뮬레이션 기능은 로그인 없이 쓸 수 있으며, 이때는 어떤 개인정보도 서버로 보내지 않습니다. 차량 설정과 코드는 사용자의 브라우저(localStorage)에만 저장됩니다.</p>
+<p>"공유 차고"에 차량을 올리기 위해 Google로 로그인하는 경우에만 다음 정보가 저장됩니다.</p>
+<ul>
+  <li>Google 계정 식별자, 이메일 주소, 표시 이름 (로그인 처리용)</li>
+  <li>사용자가 직접 올린 차량 이름, 차량 레이아웃(JSON), 아두이노 코드, 올린 시각</li>
+</ul>
+
+<h2>2. 이용 목적</h2>
+<ul>
+  <li>로그인한 사용자를 구분하고, 자신이 올린 차량만 수정·삭제할 수 있게 하기 위해</li>
+  <li>공유 차고 목록에 올린 사람의 이름을 표시하기 위해</li>
+</ul>
+<p>그 밖의 목적(광고, 분석, 제3자 판매)으로는 쓰지 않습니다.</p>
+
+<h2>3. 공개 범위</h2>
+<p>공유 차고에 올린 차량 이름, 레이아웃, 코드, 올린 사람의 표시 이름은 이 페이지를 여는 누구나 볼 수 있습니다. 이메일 주소는 목록에 표시하지 않습니다.</p>
+
+<h2>4. 보관 위치와 기간</h2>
+<p>정보는 Supabase(대한민국 서울 리전)에 저장됩니다. 사용자가 차량을 삭제하면 해당 데이터는 즉시 삭제되며, 계정 정보는 삭제 요청 시 지웁니다.</p>
+
+<h2>5. 삭제 요청</h2>
+<p>올린 차량은 시뮬레이터의 공유 차고에서 직접 삭제할 수 있습니다. 로그인 계정 정보 삭제는 <a href="https://github.com/HongJungi01/HI-RACE-2026/issues">GitHub 저장소 이슈</a>로 요청하거나 팀 관리자에게 알려 주세요.</p>
+
+<h2>6. 쿠키 등</h2>
+<p>로그인 상태 유지를 위해 브라우저 저장소에 인증 토큰이 저장됩니다. 로그아웃하면 지워집니다.</p>
+
+<p class="sub" style="margin-top:32px"><a href="./">시뮬레이터로 돌아가기</a></p>
+</main></body></html>
