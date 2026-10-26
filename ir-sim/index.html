@@ -710,7 +710,7 @@ div.CodeMirror-selected, .CodeMirror-focused div.CodeMirror-selected { backgroun
 </main>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="supabase.js"></script>
 <script src="garage-config.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/clike/clike.min.js"></script>
 <script>
@@ -2218,8 +2218,8 @@ async function supabaseBackend() {
 }
 async function initGarage() {
   let be = null;
-  if (window.claude?.use) be = await claudeBackend();
-  if (!be) be = await supabaseBackend();
+  if (window.claude?.use) be = await claudeBackend();          // claude.ai 아티팩트 안 (외부 서버 접속 불가)
+  else be = await supabaseBackend();
   if (!be) { gInfo("공유 차고는 팀 GitHub Pages 버전(hongjungi01.github.io/HI-RACE-2026/ir-sim/)에서 쓸 수 있습니다. 여기서는 탭 1의 JSON과 .ino 파일로 주고받으세요."); return; }
   GARAGE.be = be; GARAGE.uid = be.uid;
   $("garageFilter").hidden = false; $("garageUp").hidden = !be.canWrite;

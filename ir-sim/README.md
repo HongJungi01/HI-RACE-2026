@@ -10,6 +10,11 @@
 - 탭 2 시뮬레이션: 맵 선택, 차량별 실행/일시정지/정지, 출발 위치, 차량별 코드 에디터·Serial
 - 샘플 코드: `sample_linetracer.ino`(앞 11ch + 뒤 5ch, P 제어)
 
+## 공유 차고
+- 시뮬레이션 탭 오른쪽 "공유 차고": 목록은 누구나 보고 "맵에 올리기"로 바로 불러옴. 올리기·삭제는 Google 로그인 후 자기 차만 (한 사람당 8대)
+- 서버: Supabase (`garage-config.js`에 Project URL과 publishable 키. 공개 키라 저장소에 있어도 됨, 권한은 테이블 RLS가 막음)
+- 테이블·정책: `garage_setup.sql`. 개인정보처리방침: `privacy.html`
+
 ## 주의
 - 차량·코드는 브라우저(localStorage)에 저장된다. 공유는 차량 JSON과 .ino 파일로.
 - 차량 동작 파라미터(속도, 서보, IR, 타이어 등)는 실측 전 가정값.
@@ -28,3 +33,4 @@
 - avr-gcc/binutils wasm: npm `@horang-corp/avr-gcc-wasm` (GPL, 원본 소스는 GNU 프로젝트)
 - Arduino AVR 코어·Servo 등 라이브러리 (LGPL), avr-libc (BSD)
 - CodeMirror 5 (MIT, CDN에서 로드)
+- supabase-js 2.117.3 UMD 번들 `supabase.js` (MIT)
