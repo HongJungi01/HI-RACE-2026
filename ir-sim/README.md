@@ -13,7 +13,8 @@
 ## 공유 차고
 - 시뮬레이션 탭 오른쪽 "공유 차고": 목록은 누구나 보고 "맵에 올리기"로 바로 불러옴. 올리기·삭제는 Google 로그인 후 자기 차만 (한 사람당 8대)
 - 서버: Supabase (`garage-config.js`에 Project URL과 publishable 키. 공개 키라 저장소에 있어도 됨, 권한은 테이블 RLS가 막음)
-- 테이블·정책: `garage_setup.sql`. 개인정보처리방침: `privacy.html`
+- 코드 비공개: 올릴 때 체크하면 코드 대신 컴파일된 펌웨어(hex)만 공개, 다른 사람은 주행만 가능. 원본 코드는 본인만 읽는 `garage_code` 테이블
+- 테이블·정책: `garage_setup.sql`, `garage_private.sql`(비공개 기능, 이어서 실행). 개인정보처리방침: `privacy.html`
 
 ## 주의
 - 차량·코드는 브라우저(localStorage)에 저장된다. 공유는 차량 JSON과 .ino 파일로.

@@ -656,8 +656,9 @@ div.CodeMirror-selected, .CodeMirror-focused div.CodeMirror-selected { backgroun
       <div class="card-h"><h2>공유 차고</h2><span class="sub" id="garageCount"></span></div>
       <p class="sub" id="garageInfo">불러오는 중…</p>
       <div class="garage-mine" id="garageUp" hidden>
+        <label class="switch" for="garagePrivate" id="garagePrivateWrap" style="flex-direction:row;gap:6px;font-size:12.5px"><input id="garagePrivate" type="checkbox">코드 비공개 (다른 사람은 주행만 가능)</label>
         <button type="button" id="garageUpload" class="on">선택한 차를 공유 차고에 올리기</button>
-        <p class="sub">레이아웃 + 코드가 함께 올라갑니다. 같은 이름이면 덮어씁니다.</p>
+        <p class="sub">레이아웃 + 코드가 함께 올라갑니다. 비공개로 올리면 코드 대신 컴파일된 펌웨어만 공개됩니다. 같은 이름이면 덮어씁니다.</p>
       </div>
       <div class="row" style="gap:6px"><button type="button" id="garageLogin" hidden>Google로 로그인</button><button type="button" id="garageLogout" hidden>로그아웃</button></div>
       <input id="garageFilter" type="search" placeholder="차 이름·올린 사람 검색" aria-label="공유 차고 검색" hidden>
@@ -1669,12 +1670,12 @@ function carConfig(car) {
 // ---- 저장 ----
 function simSave() {
   try { localStorage.setItem(SIM_STORE, JSON.stringify({ mapId: SIM.mapId, speed: SIM.speed,
-    cars: SIM.cars.map(c => ({ name: c.name, color: c.color, design: c.design, code: c.code, start: c.start })) })); } catch (e) {}
+    cars: SIM.cars.map(c => ({ name: c.name, color: c.color, design: c.design, code: c.code, start: c.start, ...(c.locked ? { locked: true, hex: c.hex } : {}) })) })); } catch (e) {}
 }
 function simLoad() {
   try { const j = JSON.parse(localStorage.getItem(SIM_STORE) || "null"); if (!j) return false;
     SIM.mapId = j.mapId || SIM.mapId; SIM.speed = j.speed || 1;
-    for (const c of j.cars || []) addCar(c.design, { name: c.name, color: c.color, code: c.code, start: c.start, quiet: true });
+    for (const c of j.cars || []) addCar(c.design, { name: c.name, color: c.color, code: c.code, start: c.start, locked: c.locked, hex: c.hex, quiet: true });
     return true; } catch (e) { return false; }
 }
 
@@ -1699,12 +1700,14 @@ function setMap(id) {
 }
 
 // ---- 차량 추가/삭제 ----
+const LOCKED_CODE = "// 🔒 이 차는 올린 사람이 코드를 비공개로 올렸습니다.\n// 컴파일된 펌웨어(.hex)로 주행만 할 수 있습니다.\n// '샘플 코드 ▾'나 '다른 차 코드 가져오기'로 코드를 바꾸면 내 코드로 주행합니다.\n";
 function addCar(design, o = {}) {
   if (SIM.cars.length >= MAX_CARS) { $("addMsg").textContent = `차는 최대 ${MAX_CARS}대까지 올릴 수 있습니다.`; return null; }
   try { fromJSON(design); } catch (e) { $("addMsg").textContent = "차량 설정을 읽지 못했습니다: " + e.message; return null; }
   const used = new Set(SIM.cars.map(c => c.color));
   const id = simSeq++, car = { id, name: o.name || `${id}번 차`, color: o.color || CAR_COLORS.find(k => !used.has(k)) || "car1", design, code: o.code ?? SAMPLE_CODE,
     start: o.start || startSlot(SIM.cars.length), status: "stopped", worker: null, busy: false, hex: null, hexSrc: null, serial: [], serialTail: "", trail: [], err: "", hit: false };
+  if (o.locked && o.hex) { car.locked = true; car.code = LOCKED_CODE; car.hex = o.hex; car.hexSrc = car.code; }   // 비공개 코드 차: 컴파일된 hex로만 주행
   car.pose = { ...car.start, v: 0, delta: 0, servo: 110, pwm: 0, t: 0 };
   car.cfg = carConfig(car);
   SIM.cars.push(car); SIM.sel = id;
@@ -1958,6 +1961,7 @@ function renderSimUI() { renderCarList(); renderSel(); renderDock(); $("carCount
   $("simMsg").hidden = SIM.cars.length > 0; $("simMsg").textContent = "오른쪽 '차량 불러오기'에서 차를 올리세요."; }
 // 코드 상태 한 줄: 컴파일 여부·수정 여부
 function codeState(car) {
+  if (car.locked) return ["🔒 코드 비공개 · 주행만 가능", ""];
   if (car.err && car.status === "error") return [`컴파일·실행 오류`, "bad"];
   if (!car.hex) return ["아직 컴파일 안 함", ""];
   if (car.hexSrc !== car.code) return ["코드 수정됨 · 다음 실행 때 컴파일", "dirty"];
@@ -2059,7 +2063,8 @@ function showEditorFor(car) {
       doc.on("change", () => { car.code = doc.getValue(); codeChanged(car); });
     }
     if (cm.getDoc() !== doc) cm.swapDoc(doc);
-  } else { const ta = $("codeTa"); if (ta._car !== car.id || ta.value !== car.code) { ta.value = car.code; ta._car = car.id; } }
+    cm.setOption("readOnly", car.locked ? "nocursor" : false);
+  } else { const ta = $("codeTa"); if (ta._car !== car.id || ta.value !== car.code) { ta.value = car.code; ta._car = car.id; } ta.readOnly = !!car.locked; }
 }
 let saveT = 0;
 function codeChanged(car) {
@@ -2074,6 +2079,7 @@ function showCodeResult(car) {
   if (car.err) { out.className = "code-out err"; out.textContent = car.err;
     if (cm) for (const ln of errLines(car.err.split("\n"))) if (ln - 1 < cm.lineCount()) cm.addLineClass(ln - 1, "background", "cm-err-line"); return; }
   out.className = "code-out";
+  if (car.locked) { out.textContent = "🔒 코드 비공개 차량 · 올린 사람이 컴파일한 펌웨어로 주행합니다."; return; }
   if (car.status !== "stopped" && car.hexSrc !== car.code) out.textContent = `코드가 바뀌었습니다. ${car.name}을(를) ⏹ 정지한 뒤 다시 ▶ 실행하면 새 코드로 컴파일됩니다.`;
   else out.textContent = car.hexSrc === car.code && car.hex ? `컴파일됨 · 플래시 ${car.flash ?? "?"} bytes` : "아직 컴파일하지 않았습니다. '컴파일 확인' 또는 ▶ 실행.";
 }
@@ -2088,6 +2094,7 @@ $("dtCode").onclick = () => setDock("code"); $("dtSerial").onclick = () => setDo
 $("dockToggle").onclick = () => { SIM.dockOpen = !SIM.dockOpen; renderDock(); };
 $("codeCompile").onclick = async () => {
   const car = selCar(); if (!car) return;
+  if (car.locked) { $("codeOut").textContent = "비공개 코드 차량이라 컴파일할 코드가 없습니다. 올린 사람의 펌웨어로 주행합니다."; return; }
   $("codeOut").className = "code-out"; $("codeOut").textContent = `${car.name} 코드 컴파일 중… (처음 한 번은 컴파일러 약 19 MB를 받습니다)`;
   const src = car.code, r = await compileCode(src);
   if (r.ok) { car.hex = r.hex; car.hexSrc = src; car.flash = r.flash; car.err = ""; if (car.status === "error") car.status = "stopped"; }
@@ -2097,12 +2104,12 @@ $("codeCompile").onclick = async () => {
 $("codeHex").onchange = e => { const f = e.target.files[0], car = selCar(); if (!f || !car) return; const r = new FileReader();
   r.onload = () => { car.hex = r.result; car.hexSrc = car.code; car.flash = null; car.err = ""; renderCarList(); $("codeOut").className = "code-out"; $("codeOut").textContent = `${f.name}을(를) ${car.name}의 펌웨어로 씁니다. 코드를 고치면 다시 컴파일합니다.`; };
   r.readAsText(f); e.target.value = ""; };
-function replaceCode(car, code) { car.code = code; cmDocs.delete(car.id); if ($("codeTa")) $("codeTa")._car = null; codeChanged(car); renderDock(); simSave(); }
+function replaceCode(car, code) { if (car.locked) { car.locked = false; car.hex = null; car.hexSrc = null; } car.code = code; cmDocs.delete(car.id); if ($("codeTa")) $("codeTa")._car = null; codeChanged(car); renderDock(); simSave(); }
 $("codeCopy").onclick = () => {
   const car = selCar(), menu = $("copyMenu"); if (!car) return;
   if (!menu.hidden && menu.dataset.kind === "copy") { menu.hidden = true; return; }
   menu.dataset.kind = "copy";
-  const others = SIM.cars.filter(c => c !== car);
+  const others = SIM.cars.filter(c => c !== car && !c.locked);
   menu.innerHTML = others.length ? `<span class="sub">${esc(car.name)}의 코드를 덮어씁니다:</span>` + others.map(o => `<button type="button" data-from="${o.id}" style="--cc:var(--${o.color})"><span class="dot"></span>${esc(o.name)} 코드</button>`).join("") + `<button type="button" data-from="x">닫기</button>`
     : `<span class="sub">다른 차가 없습니다.</span><button type="button" data-from="x">닫기</button>`;
   menu.hidden = false;
@@ -2194,11 +2201,11 @@ async function supabaseBackend() {
   const { data: { session } } = await sb.auth.getSession();
   const u = session?.user || null, uid = u?.id || null;
   const myName = u ? (u.user_metadata?.full_name || u.user_metadata?.name || (u.email || "").split("@")[0] || "팀원") : "";
-  const map = r => ({ id: r.id, name: r.name, note: r.note || "", design: r.design, code: r.code, updatedAt: Date.parse(r.updated_at), uid: r.owner, who: r.owner_name || "팀원" });
+  const map = r => ({ id: r.id, name: r.name, note: r.note || "", design: r.design, code: r.code, codePrivate: !!r.code_private, hex: r.hex || null, updatedAt: Date.parse(r.updated_at), uid: r.owner, who: r.owner_name || "팀원" });
   const err = e => ({ code: e.code || "error", message: e.message });
-  const be = { uid, canWrite: !!uid, label: "Supabase", who: myName,
+  const be = { uid, canWrite: !!uid, label: "Supabase", who: myName, supportsPrivate: true,
     async subscribe(cb) {
-      const load = async () => { const { data, error } = await sb.from("garage_cars").select("id,owner,owner_name,name,note,design,code,updated_at").order("updated_at", { ascending: false }).limit(200);
+      const load = async () => { const { data, error } = await sb.from("garage_cars").select("id,owner,owner_name,name,note,design,code,code_private,hex,updated_at").order("updated_at", { ascending: false }).limit(200);
         if (error) { gInfo("공유 차고를 읽지 못했습니다: " + error.message); return; } cb(data.map(map)); };
       await load();
       try { sb.channel("garage").on("postgres_changes", { event: "*", schema: "public", table: "garage_cars" }, load).subscribe(); } catch (e) {}
@@ -2208,9 +2215,17 @@ async function supabaseBackend() {
       const { count } = await sb.from("garage_cars").select("id", { count: "exact", head: true }).eq("owner", uid);
       const { data: same } = await sb.from("garage_cars").select("id").eq("owner", uid).eq("name", entry.name).maybeSingle();
       if (!same && count >= MAX_MINE) throw { code: "too_big", message: `한 사람당 ${MAX_MINE}대까지 올릴 수 있습니다.` };
-      const { error } = await sb.from("garage_cars").upsert({ owner: uid, owner_name: myName, name: entry.name, note: entry.note, design: entry.design, code: entry.code, updated_at: new Date().toISOString() }, { onConflict: "owner,name" });
-      if (error) throw err(error); await be.reload?.();
+      const priv = !!entry.codePrivate;
+      const { data: row, error } = await sb.from("garage_cars").upsert({ owner: uid, owner_name: myName, name: entry.name, note: entry.note, design: entry.design,
+        code: priv ? "" : entry.code, code_private: priv, hex: priv ? entry.hex : null, updated_at: new Date().toISOString() }, { onConflict: "owner,name" }).select("id").single();
+      if (error) throw err(error);
+      // 비공개 코드는 본인만 읽을 수 있는 garage_code 테이블에 따로 보관
+      const r2 = priv ? await sb.from("garage_code").upsert({ car_id: row.id, owner: uid, code: entry.code, updated_at: new Date().toISOString() }, { onConflict: "car_id" })
+                      : await sb.from("garage_code").delete().eq("car_id", row.id);
+      if (r2.error) throw err(r2.error);
+      await be.reload?.();
     },
+    async privateCode(id) { const { data, error } = await sb.from("garage_code").select("code").eq("car_id", id).maybeSingle(); if (error) throw err(error); return data?.code ?? null; },
     async remove(id) { const { error } = await sb.from("garage_cars").delete().eq("id", id); if (error) throw err(error); await be.reload?.(); },
     login: () => sb.auth.signInWithOAuth({ provider: "google", options: { redirectTo: location.origin + location.pathname, queryParams: { prompt: "select_account" } } }),
     logout: async () => { await sb.auth.signOut(); location.reload(); } };
@@ -2222,7 +2237,7 @@ async function initGarage() {
   else be = await supabaseBackend();
   if (!be) { gInfo("공유 차고는 팀 GitHub Pages 버전(hongjungi01.github.io/HI-RACE-2026/ir-sim/)에서 쓸 수 있습니다. 여기서는 탭 1의 JSON과 .ino 파일로 주고받으세요."); return; }
   GARAGE.be = be; GARAGE.uid = be.uid;
-  $("garageFilter").hidden = false; $("garageUp").hidden = !be.canWrite;
+  $("garageFilter").hidden = false; $("garageUp").hidden = !be.canWrite; $("garagePrivateWrap").hidden = !be.supportsPrivate;
   $("garageLogin").hidden = !(be.login && !be.uid); $("garageLogout").hidden = !(be.logout && be.uid);
   gInfo(be.canWrite ? `팀원이 올린 차를 '맵에 올리기'로 바로 불러와 주행할 수 있습니다.${be.who ? ` (${be.who}로 로그인)` : ""}`
     : be.login ? "목록은 누구나 볼 수 있고, 올리려면 Google로 로그인하세요." : "읽기 전용입니다. 올리려면 공유 권한이 Contributor 이상이어야 합니다.");
@@ -2237,7 +2252,8 @@ function renderGarage() {
   for (const e of es) {
     const row = document.createElement("div"); row.className = "grow-item" + (e.mine ? " mine" : "");
     const b = document.createElement("b"); b.textContent = e.name || "(이름 없음)";
-    const meta = document.createElement("span"); meta.className = "meta"; meta.textContent = `${e.who} · ${fmtTime(e.updatedAt || 0)}${e.note ? " · " + e.note : ""}`;
+    const meta = document.createElement("span"); meta.className = "meta"; meta.textContent = `${e.codePrivate ? "🔒 " : ""}${e.who} · ${fmtTime(e.updatedAt || 0)}${e.note ? " · " + e.note : ""}`;
+    if (e.codePrivate) meta.title = "코드 비공개: 주행만 가능";
     const acts = document.createElement("span"); acts.className = "acts";
     const add = document.createElement("button"); add.type = "button"; add.textContent = "맵에 올리기"; add.className = "on"; add.onclick = () => takeFromGarage(e);
     acts.append(add);
@@ -2248,19 +2264,35 @@ function renderGarage() {
     row.append(b, acts, meta); list.append(row);
   }
 }
-function takeFromGarage(e) {
+async function takeFromGarage(e) {
   if (SIM.cars.length >= MAX_CARS) { gInfo(`맵에는 최대 ${MAX_CARS}대까지 올릴 수 있습니다. 한 대를 삭제하세요.`); return; }
-  const c = addCar(e.design, { code: e.code || SAMPLE_CODE });
+  let opts = { code: e.code || SAMPLE_CODE };
+  if (e.codePrivate) {
+    if (e.mine && GARAGE.be.privateCode) {                     // 내 비공개 차는 원본 코드까지 가져옴
+      try { const code = await GARAGE.be.privateCode(e.id); opts = code != null ? { code } : { locked: true, hex: e.hex }; }
+      catch (er) { opts = { locked: true, hex: e.hex }; }
+    } else opts = { locked: true, hex: e.hex };
+    if (opts.locked && !e.hex) { gInfo("이 차는 펌웨어가 없어 불러올 수 없습니다."); return; }
+  }
+  const c = addCar(e.design, opts);
   if (!c) { gInfo("이 차의 설정을 읽지 못했습니다."); return; }
   c.name = (e.name || "차").slice(0, 24) + (e.mine ? "" : ` (${e.who})`);
-  simSave(); renderSimUI(); gInfo(`${c.name}을(를) 맵에 올렸습니다. ▶ 실행하면 컴파일 후 주행합니다.`);
+  simSave(); renderSimUI(); gInfo(`${c.name}을(를) 맵에 올렸습니다. ${c.locked ? "▶ 실행하면 올린 사람의 펌웨어로 바로 주행합니다 (코드 비공개)." : "▶ 실행하면 컴파일 후 주행합니다."}`);
 }
 $("garageUpload").onclick = async () => {
   const car = selCar(); if (!car || !GARAGE.be?.canWrite) { gInfo("올릴 차를 먼저 선택하세요."); return; }
   const name = (car.name.trim() || "내 차").slice(0, 40), had = GARAGE.entries.some(e => e.uid === GARAGE.uid && e.name === name);
-  const entry = { id: "c" + Date.now().toString(36), name, note: "", design: car.design, code: car.code, updatedAt: Date.now() };
+  if (car.locked) { gInfo("비공개 코드로 받은 차는 다시 올릴 수 없습니다. 내 코드로 바꾼 뒤 올리세요."); return; }
+  const priv = !!GARAGE.be.supportsPrivate && $("garagePrivate").checked;
+  const entry = { id: "c" + Date.now().toString(36), name, note: "", design: car.design, code: car.code, codePrivate: priv, updatedAt: Date.now() };
+  if (priv) {                                                  // 비공개: 지금 코드를 컴파일한 펌웨어를 같이 올림
+    if (car.hex && car.hexSrc === car.code) entry.hex = car.hex;
+    else { gInfo(`${name} 코드 컴파일 중… (비공개 업로드는 펌웨어가 필요)`); const r = await compileCode(car.code);
+      if (!r.ok) { car.err = [r.error, ...(r.log || [])].join("\n"); renderSimUI(); gInfo("컴파일 오류가 있어 올리지 않았습니다. 코드 탭에서 오류를 확인하세요."); return; }
+      car.hex = r.hex; car.hexSrc = car.code; car.flash = r.flash; entry.hex = r.hex; renderCarList(); }
+  }
   gInfo(`${name} 올리는 중…`);
-  try { await GARAGE.be.upsert(entry); gInfo(`${name}을(를) 공유 차고에 ${had ? "덮어썼습니다" : "올렸습니다"}.`); }
+  try { await GARAGE.be.upsert(entry); gInfo(`${name}을(를) 공유 차고에 ${had ? "덮어썼습니다" : "올렸습니다"}${priv ? " (코드 비공개)" : ""}.`); }
   catch (e) { gInfo(e.code === "too_big" ? e.message : e.code === "invalid_argument" || e.code === "42501" ? "올릴 권한이 없습니다." : `올리지 못했습니다 (${e.message || e.code}).`); }
 };
 $("garageLogin").onclick = () => GARAGE.be?.login?.();
