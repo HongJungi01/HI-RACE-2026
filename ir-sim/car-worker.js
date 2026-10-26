@@ -201,7 +201,7 @@ function driveStep(P, duty, rev, brake, dt) {
   const r = P.wheelD / 200, gear = P.gear, m = P.mass || 1.5, g = 9.81;
   const vbat = P.vbat || 7.4, R = Math.max(0.05, P.mR || 1.5), Lm = Math.max(1e-6, (P.mL ?? 0.1) / 1000);
   const Ke = vbat / (gear * (P.vmax / 100) / r), Tf = (P.mFric || 0) / 1000;
-  const meq = m + (P.jEq || 0), Fmax = (P.mu || 0.8) * m * g * 0.5;   // 구동륜 견인 한계 (하중 절반 가정)
+  const meq = m + (P.jEq || 0), Fmax = (P.mu || 1.0) * m * g * 0.5;   // 구동륜 견인 한계 (하중 절반 가정)
   const V = (rev ? -1 : 1) * duty * vbat, N = 10, h = dt / N, te = Lm / R;
   let v = veh.v / 100, i = veh.i || 0;
   for (let k = 0; k < N; k++) {
@@ -245,19 +245,27 @@ function vehicleStep(dt, cycle0) {
   const L = cfg.body.L / 100, vx = veh.v / 100;             // SI
   const b = clamp((P.cgX ?? L * 50) / 100, 0.01, L - 0.01), a = L - b;
   if (P.dyn && Math.abs(vx) > 0.15) {
-    // 동역학 자전거 모델 (무게중심 기준 vy, r), 타이어 횡력 = μFz·tanh(Cα/μFz)
-    const m = P.mass || 1.5, g = 9.81, Iz = m * (a * a + b * b) / 2, mu = P.mu || 0.8;
-    const Fzf = m * g * b / L, Fzr = m * g * a / L;
-    const af = d - Math.atan2(veh.vy + a * veh.r, Math.abs(vx)) * Math.sign(vx), ar = -Math.atan2(veh.vy - b * veh.r, Math.abs(vx)) * Math.sign(vx);
-    const Fyf = mu * Fzf * Math.tanh(P.cf * af / (mu * Fzf)), Fyr = mu * Fzr * Math.tanh(P.cr * ar / (mu * Fzr));
-    // 1 ms를 잘게 나눠 안정 적분
-    const N = 4, h = dt / N;
+    // 동역학 자전거 모델 (무게중심 기준 vy, r)
+    // 타이어 횡력: 정지마찰 구간은 매우 단단한 선형(접지면 변형만, 실제 미끄러짐 거의 없음) → μs·Fz에서 최대 →
+    // 넘으면 미끄러지며 운동마찰 μk·Fz로 떨어짐 (꼭짓점 뒤 약 3° 동안 감소)
+    const m = P.mass || 1.5, g = 9.81, Iz = m * (a * a + b * b) / 2, muS = P.mu || 1.0, muK = Math.min(P.muK ?? 0.8, muS);
+    const Fzf = m * g * b / L, Fzr = m * g * a / L, sx = Math.sign(vx), ax = Math.abs(vx);
+    const tire = (C, Fz, al) => { const ap = muS * Fz / C, aa = Math.abs(al);
+      if (aa <= ap) return C * al;                                      // 접지 유지 (정지마찰)
+      return Math.sign(al) * Fz * (muK + (muS - muK) * Math.exp(-(aa - ap) / 0.05));  // 미끄러짐 (운동마찰로 감소)
+    };
+    const N = 20, h = dt / N;                                  // 단단한 타이어라 0.05 ms로 잘게 적분
+    let slipF = false, slipR = false;
     for (let i = 0; i < N; i++) {
+      const af = d - Math.atan2(veh.vy + a * veh.r, ax) * sx, ar = -Math.atan2(veh.vy - b * veh.r, ax) * sx;
+      const Fyf = tire(P.cf, Fzf, af), Fyr = tire(P.cr, Fzr, ar);
+      slipF ||= Math.abs(af) > muS * Fzf / P.cf; slipR ||= Math.abs(ar) > muS * Fzr / P.cr;
       const dvy = (Fyf * Math.cos(d) + Fyr) / m - vx * veh.r, dr = (a * Fyf * Math.cos(d) - b * Fyr) / Iz;
       veh.vy += dvy * h; veh.r += dr * h;
     }
+    veh.slip = slipF || slipR ? (slipR ? 2 : 1) : 0;
   } else {                                                   // 저속: 미끄러짐 없는 기구학
-    veh.r = vx * Math.tan(d) / L; veh.vy = b * veh.r;
+    veh.r = vx * Math.tan(d) / L; veh.vy = b * veh.r; veh.slip = 0;
   }
   // 후축 중심 속도 = (vx, vy − b·r)
   const vRy = veh.vy - b * veh.r, co = Math.cos(veh.yaw), si = Math.sin(veh.yaw), ds = veh.v * dt;
@@ -274,7 +282,7 @@ function vehicleStep(dt, cycle0) {
 }
 
 function state() {
-  const out = { type: "state", x: veh.x, y: veh.y, yaw: veh.yaw, v: veh.v, delta: veh.delta, servo: veh.servo, pwm: veh.pwm, dir: veh.dir, t: mega.cpu.cycles / 16e6, serial, trail };
+  const out = { type: "state", x: veh.x, y: veh.y, yaw: veh.yaw, v: veh.v, slip: veh.slip || 0, delta: veh.delta, servo: veh.servo, pwm: veh.pwm, dir: veh.dir, t: mega.cpu.cycles / 16e6, serial, trail };
   serial = ""; trail = [];
   return out;
 }
