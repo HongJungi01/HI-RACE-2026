@@ -779,20 +779,24 @@ const IRMOD = {
     order: [1, 2, 3, 4, 5],
     outline: [[-54.9,-48],[-56.5,-47.7],[-57.8,-46.8],[-59,-44.1],[-58.9,-24.5],[-58,-21.3],[-56.1,-18.2],[-52.9,-15.6],[-48.7,-14.1],[-27,-14],[-24.5,-13.2],[-22.5,-11.4],[-8.9,8],[-6.3,10.2],[-2.7,11.7],[0.3,12],[2.9,11.6],[5.8,10.5],[8.2,8.7],[22.5,-11.4],[24.5,-13.2],[27,-14],[47,-14],[50.2,-14.4],[53.6,-16],[56,-18],[57.7,-20.6],[58.7,-23.6],[59,-44.5],[57.9,-46.8],[55.9,-47.9]],
     holes: [[-32.5,-26],[32.5,-26]], hole_d: 3.2,
-    conn: { D: { cx: -44.84, cy: -43, n: 8, pitch: 2.54, depth: 5.4, name: "DIGITAL 8P", extra: ["GND"] }, A: { cx: 46.11, cy: -43, n: 7, pitch: 2.54, depth: 5.4, name: "ANALOG 7P", extra: [] } } },
+    // 디지털 출력 없음: 보드 가운데 핀헤더 9P = VCC, GND, 아날로그 S1~S5, CLP(충돌 버튼), NEAR(적외선 근접 감지) (사용자 확인)
+    conn: { A: { cx: 0, cy: -43, n: 9, pitch: 2.54, depth: 5.4, name: "9P", extra: [], seq: ["VCC", "GND", "S", "CLP", "NEAR"] } } },
 };
 // IR 커넥터 핀 순서 (사용자 확인): 오른쪽부터 VCC → 센서 1번 → 2번 … → 가장 왼쪽 GND
 function irPins(key) {
   const M = IRMOD[key], pins = [];
-  for (const [side, { cx, cy, n, pitch, extra }] of Object.entries(M.conn)) {
+  for (const [side, { cx, cy, n, pitch, extra, seq }] of Object.entries(M.conn)) {
     const ids = Object.keys(M.sensors).map(Number).sort((a, b) => a - b);
-    const rightToLeft = [{ p: "VCC" }, ...ids.map(i => ({ s: i })), { p: "GND" }, ...extra.map(p => ({ p }))];
+    const rightToLeft = seq ? seq.flatMap(t => t === "S" ? ids.map(i => ({ s: i })) : [{ p: t }])
+      : [{ p: "VCC" }, ...ids.map(i => ({ s: i })), { p: "GND" }, ...extra.map(p => ({ p }))];
     rightToLeft.forEach((nm, r) => {
       const k = n - 1 - r, x = cx - n * pitch / 2 + pitch / 2 + k * pitch;
       const kind = side === "A" ? "analog" : "digital";
+      const SIG = { NEAR: "NEAR (적외선 근접)", CLP: "CLP (충돌 버튼)" };       // 디지털 출력 신호 핀
+      if (SIG[nm.p]) { pins.push({ key: nm.p, label: SIG[nm.p], req: "digital", cat: "ir", sig: true, pitch, at: irL(x, cy) }); return; }
       pins.push(nm.s != null
-        ? { key: `${side}${nm.s}`, label: `${side === "A" ? "ANALOG" : "DIGITAL"} ${nm.s}번`, req: kind, cat: "ir", sensor: nm.s, out: kind, pitch, at: irL(x, cy) }
-        : { key: `${side}${nm.p}${rightToLeft.slice(0, r).filter(o => o.p === nm.p).length || ""}`, label: `${side === "A" ? "ANALOG" : "DIGITAL"} ${nm.p}${rightToLeft.slice(0, r).filter(o => o.p === nm.p).length ? " 2" : ""}`, req: nm.p === "VCC" ? "vcc" : "gnd", cat: "pwr", pitch, at: irL(x, cy) });
+        ? { key: `${side}${nm.s}`, label: seq ? `S${nm.s} (아날로그)` : `${side === "A" ? "ANALOG" : "DIGITAL"} ${nm.s}번`, req: kind, cat: "ir", sensor: nm.s, out: kind, pitch, at: irL(x, cy) }
+        : { key: `${side}${nm.p}${rightToLeft.slice(0, r).filter(o => o.p === nm.p).length || ""}`, label: `${seq ? "" : side === "A" ? "ANALOG " : "DIGITAL "}${nm.p}${rightToLeft.slice(0, r).filter(o => o.p === nm.p).length ? " 2" : ""}`, req: nm.p === "VCC" ? "vcc" : "gnd", cat: "pwr", pitch, at: irL(x, cy) });
     });
   }
   return pins;
@@ -801,7 +805,7 @@ const row = (f, keys, pitch = 2.54) => keys.map((k, i) => [k, [f, (keys.length -
 const TYPES = {
   mega: { name: "Arduino Mega 2560", short: "Mega", color: "mega", single: true, fixed: true },
   ir11: { name: "IR 11ch 모듈", short: "IR 11ch", note: "LT11 · 245 × 35 mm", color: "w-ir", single: true, pins: irPins("ir11") },
-  ir5: { name: "IR 5ch 모듈", short: "IR 5ch", note: "118 × 60 mm · x 실측", color: "w-ir", single: true, pins: irPins("ir5") },
+  ir5: { name: "IR 5ch 모듈", short: "IR 5ch", note: "아날로그 5ch + NEAR · 118 × 60 mm", color: "w-ir", single: true, pins: irPins("ir5") },
   us: { name: "초음파 HC-SR04", short: "US", note: "최대 4개 · 빔 반각 15°", color: "w-us", max: 4,
     pins: row(-16, ["GND", "ECHO", "TRIG", "VCC"]).map(([k, at]) => ({ key: k, label: k, req: k === "VCC" ? "vcc" : k === "GND" ? "gnd" : "digital", cat: k === "VCC" || k === "GND" ? "pwr" : "us", at })) },
   // 서보 + 초음파: 서보 혼 위에 HC-SR04. 서보 90° = 부품 정면, 각도↑ = 반시계(왼쪽). 초음파 개수(최대 4)에 포함, 이 모듈은 최대 2개
@@ -988,7 +992,7 @@ function fromJSON(j) {
   if (j.params) for (const k of Object.keys(d.params)) d.params[k] = num(j.params[k], d.params[k]);
   d.comps = (j.components || []).filter(c => TYPES[c.type]).map(c => ({ id: String(c.id), type: c.type, x: num(c.mount?.x, 0), y: num(c.mount?.y, 0), yaw: num(c.mount?.yaw, 0), ...(SWN[c.type] ? { sw: Array.from({ length: SWN[c.type] }, (_, i) => (c.sw || [])[i] ? 1 : 0) } : {}) }));
   if (!d.comps.some(c => c.type === "mega")) d.comps.unshift({ id: "mega", type: "mega", x: 13, y: 0, yaw: 0 });
-  const hasComp = ep => d.comps.some(c => c.id === ep.split(".")[0]);
+  const hasComp = ep => { const [id, key] = ep.split("."), c = d.comps.find(c => c.id === id); return !!c && (TYPES[c.type].pins || []).some(p => p.key === key); };   // 부품과 그 핀이 모두 있어야 함
   d.wires = (j.wires || []).map(w => ({ from: String(w.from), to: megaPinById[w.to_id] ? w.to_id : String(w.to_id || w.to || ""), via: (w.via || []).filter(p => p.length === 2).map(p => [+p[0], +p[1]]) }))
     .filter(w => w.from.includes(".") && hasComp(w.from) && (megaPinById[w.to] || (w.to.includes(".") && hasComp(w.to))));
   return d;
@@ -1101,7 +1105,7 @@ function removeComp(id) {
 // 1/10_IR_MEGA 회로도 기준 센서 배선 (LT11/LT5 ANALOG·DIGITAL, 초음파 CN7·CN6·CN5·CN2)
 const SCHEM = {
   ir11: { A: Array.from({ length: 11 }, (_, i) => "A" + i), D: [52, 50, 48, 46, 44, 42, 40, 38, 36, 34, 32].map(n => "D" + n) },
-  ir5: { A: [11, 12, 13, 14, 15].map(n => "A" + n), D: [53, 51, 49, 47, 45].map(n => "D" + n) },
+  ir5: { A: [11, 12, 13, 14, 15].map(n => "A" + n), NEAR: "D53", CLP: "D51" },   // 디지털 출력 없음 → NEAR·CLP는 예전 LT5 DIGITAL 1·2번 자리(D53·D51)에
   us: [["CN7", 41, 43], ["CN6", 37, 39], ["CN5", 33, 35], ["CN2", 29, 31]],
   susServo: [11, 12],
   dip: [22, 24, 26, 28],
@@ -1116,8 +1120,9 @@ function applySchematic(quiet = false) {
     if (c.type === "ir5" || c.type === "ir11") {
       const m = SCHEM[c.type];
       for (const p of compPins(c)) { const ref = `${c.id}.${p.key}`, side = p.key[0];
-        if (p.sensor != null) wire(ref, m[side][c.type === "ir11" ? p.sensor : p.sensor - 1]); else wire(ref, p.req === "vcc" ? nextV() : nextG()); }
-      done.push(`${TYPES[c.type].short} A ${m.A[0]}~${m.A.at(-1)}, D ${m.D.join("·").replace(/D/g, "")}`);
+        if (p.sig) wire(ref, m[p.key]);
+        else if (p.sensor != null) wire(ref, m[side][c.type === "ir11" ? p.sensor : p.sensor - 1]); else wire(ref, p.req === "vcc" ? nextV() : nextG()); }
+      done.push(m.D ? `${TYPES[c.type].short} A ${m.A[0]}~${m.A.at(-1)}, D ${m.D.join("·").replace(/D/g, "")}` : `${TYPES[c.type].short} A ${m.A[0]}~${m.A.at(-1)}, NEAR ${m.NEAR}, CLP ${m.CLP}`);
     }
   }
   for (const c of S.comps.filter(c => c.type === "dip")) {
@@ -1171,7 +1176,8 @@ function buildSel() {
     }
     h += `</tbody></table></div>`;
     if (SWN[c.type]) h += `<div class="row" style="gap:6px;flex-wrap:wrap">${Array.from({ length: SWN[c.type] }, (_, i) => `<button type="button" class="${c.sw?.[i] ? "on" : ""}" data-dipsw="${i}" aria-pressed="${!!c.sw?.[i]}">${swName(c, i)} ${c.sw?.[i] ? "ON" : "OFF"}</button>`).join("")}</div><p class="sub">ON = 핀이 GND에 붙어 LOW. 코드에서 pinMode(핀, INPUT_PULLUP) 후 digitalRead == LOW면 ON. 시뮬레이션 탭에서 차마다 따로 바꿀 수 있음</p>`;
-    if (c.type.startsWith("ir")) h += `<p class="sub">원점 = ${c.type === "ir5" ? "3번(중앙, 전방 돌출)" : "0번(중앙)"} 센서 중심. ANALOG 커넥터에서 뽑으면 analogRead, DIGITAL이면 digitalRead.</p>`;
+    if (c.type === "ir5") h += `<p class="sub">원점 = 3번(중앙, 전방 돌출) 센서 중심. 센서 1~5는 아날로그 출력만 있음 → A0~A15에 연결해 analogRead. NEAR(적외선 근접)·CLP(충돌 버튼)는 디지털 출력 → digitalRead (시뮬레이션에서는 아직 감지 동작 없음).</p>`;
+    else if (c.type.startsWith("ir")) h += `<p class="sub">원점 = 0번(중앙) 센서 중심. ANALOG 커넥터에서 뽑으면 analogRead, DIGITAL이면 digitalRead.</p>`;
   }
   body.innerHTML = h;
   for (const [id, k] of [["sx", "x"], ["sy", "y"], ["sw", "yaw"]]) $(id).oninput = e => { const v = parseFloat(e.target.value); if (Number.isFinite(v)) { c[k] = v; changed(false); } };
