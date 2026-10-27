@@ -812,6 +812,9 @@ const TYPES = {
   dip: { name: "DIP 스위치 4P", short: "DIP", note: "ON = LOW (INPUT_PULLUP) · 출발 차로 등 설정", color: "w-act", single: true, box: [[-6, 6], [-11, 11]],
     pins: [...row(-9, ["SW4", "SW3", "SW2", "SW1"]).map(([k, [f, l]]) => ({ key: k, label: "스위치 " + k.slice(2), req: "digital", cat: "act", at: [f, l + 1.3] })),
            { key: "COM", label: "COM (GND)", req: "gnd", cat: "pwr", at: [-9, -9.5] }] },
+  // 토글 스위치: ON = SW 핀이 COM(GND)에 붙어 LOW. 출발 차로 선택 (OFF 1차로 / ON 2차로)
+  tog: { name: "토글 스위치", short: "SW", note: "ON = LOW (INPUT_PULLUP) · 출발 차로 선택", color: "w-act", single: true, box: [[-5, 5], [-4, 4]],
+    pins: row(-7, ["SW", "COM"]).map(([k, at]) => ({ key: k, label: k === "SW" ? "스위치" : "COM (GND)", req: k === "SW" ? "digital" : "gnd", cat: k === "SW" ? "act" : "pwr", at })) },
   steer: { name: "조향 서보", short: "조향", note: "Servo.write · 40 × 20 mm", color: "w-act", single: true, box: [[-10, 10], [-20, 20]],
     pins: row(-14, ["SIG", "VCC", "GND"]).map(([k, at]) => ({ key: k, label: k, req: k === "SIG" ? "servo" : k.toLowerCase(), cat: k === "SIG" ? "act" : "pwr", at })) },
   brake: { name: "브레이크 서보", short: "브레이크", note: "Servo.write · 40 × 20 mm", color: "w-act", single: true, box: [[-10, 10], [-20, 20]],
@@ -826,7 +829,10 @@ const TYPES = {
            ...row(-18, ["ENCA", "ENCB", "EVCC", "EGND"]).map(([k, at]) => ({ key: k, label: { ENCA: "엔코더 A", ENCB: "엔코더 B", EVCC: "엔코더 VCC", EGND: "엔코더 GND" }[k],
              req: k === "ENCA" ? "extint" : k === "ENCB" ? "digital" : k === "EVCC" ? "vcc" : "gnd", cat: k === "ENCA" || k === "ENCB" ? "act" : "pwr", at }))] },
 };
-const PALETTE = ["ir5", "ir11", "us", "sus", "steer", "drive", "driver", "brake", "dip"];
+const PALETTE = ["ir5", "ir11", "us", "sus", "steer", "drive", "driver", "brake", "tog"];
+const SWN = { dip: 4, tog: 1 };                       // 스위치 부품의 스위치 수 (DIP는 예전 레이아웃 호환용, 팔레트에서는 뺌)
+const swKey = (c, i) => c.type === "tog" ? "SW" : "SW" + (i + 1);
+const swName = (c, i) => c.type === "tog" ? "스위치" : "SW" + (i + 1);
 const US_TOTAL = 4;                                   // 초음파(단독 + 서보 모듈) 합계 최대
 const usCount = () => S.comps.filter(c => c.type === "us" || c.type === "sus").length;
 const typeFull = t => { const T = TYPES[t], n = S.comps.filter(c => c.type === t).length; return T.single ? n >= 1 : n >= T.max || ((t === "us" || t === "sus") && usCount() >= US_TOTAL); };
@@ -965,7 +971,7 @@ function toJSON() {
     frame: { origin: "rear axle center", x: "forward", y: "left", unit: "cm", yaw: "deg, CCW +", part_local: "mm, f forward, l left" },
     body: { ...S.body },
     params: { ...S.params },
-    components: S.comps.map(c => ({ id: c.id, type: c.type, mount: { x: +c.x.toFixed(2), y: +c.y.toFixed(2), yaw: c.yaw }, ...(c.type === "dip" ? { sw: (c.sw || [0, 0, 0, 0]).map(v => v ? 1 : 0) } : {}) })),
+    components: S.comps.map(c => ({ id: c.id, type: c.type, mount: { x: +c.x.toFixed(2), y: +c.y.toFixed(2), yaw: c.yaw }, ...(SWN[c.type] ? { sw: Array.from({ length: SWN[c.type] }, (_, i) => (c.sw || [])[i] ? 1 : 0) } : {}) })),
     wires: S.wires.map(w => ({ from: w.from, to: megaPinById[w.to] ? "mega." + (megaPinById[w.to].alias || megaPinById[w.to].name) : w.to, to_id: w.to, via: w.via.map(p => p.map(v => +v.toFixed(2))) })),
     derived: {
       actuators: Object.fromEntries(Object.entries(D.act).map(([k, v]) => [k, pinName(v)])),
@@ -980,7 +986,7 @@ function fromJSON(j) {
   const d = DEFAULT(), num = (v, dv) => Number.isFinite(+v) ? +v : dv;
   if (j.body) for (const k of ["L", "W", "front", "rear"]) d.body[k] = num(j.body[k], d.body[k]);
   if (j.params) for (const k of Object.keys(d.params)) d.params[k] = num(j.params[k], d.params[k]);
-  d.comps = (j.components || []).filter(c => TYPES[c.type]).map(c => ({ id: String(c.id), type: c.type, x: num(c.mount?.x, 0), y: num(c.mount?.y, 0), yaw: num(c.mount?.yaw, 0), ...(c.type === "dip" ? { sw: [0, 1, 2, 3].map(i => (c.sw || [])[i] ? 1 : 0) } : {}) }));
+  d.comps = (j.components || []).filter(c => TYPES[c.type]).map(c => ({ id: String(c.id), type: c.type, x: num(c.mount?.x, 0), y: num(c.mount?.y, 0), yaw: num(c.mount?.yaw, 0), ...(SWN[c.type] ? { sw: Array.from({ length: SWN[c.type] }, (_, i) => (c.sw || [])[i] ? 1 : 0) } : {}) }));
   if (!d.comps.some(c => c.type === "mega")) d.comps.unshift({ id: "mega", type: "mega", x: 13, y: 0, yaw: 0 });
   const hasComp = ep => d.comps.some(c => c.id === ep.split(".")[0]);
   d.wires = (j.wires || []).map(w => ({ from: String(w.from), to: megaPinById[w.to_id] ? w.to_id : String(w.to_id || w.to || ""), via: (w.via || []).filter(p => p.length === 2).map(p => [+p[0], +p[1]]) }))
@@ -1074,7 +1080,7 @@ function buildPalette() {
 }
 function defaultSpot(type) {
   const B = S.body;
-  const spots = { dip: [18, -6, 0], ir5: [-B.rear - 2.5, 0, 180], ir11: [B.L + B.front - 0.5, 0, 0], steer: [4.5, 3.5, 0], brake: [21, 4.5, 0], drive: [1.5, 0, 90], driver: [4.5, -4.5, 90] };
+  const spots = { dip: [18, -6, 0], tog: [18, -6, 0], ir5: [-B.rear - 2.5, 0, 180], ir11: [B.L + B.front - 0.5, 0, 0], steer: [4.5, 3.5, 0], brake: [21, 4.5, 0], drive: [1.5, 0, 90], driver: [4.5, -4.5, 90] };
   if (type === "sus") { const i = S.comps.filter(c => c.type === "sus").length; return [[24, 0, 0], [-3, 0, 180]][i] || [15, 0, 0]; }
   if (type === "us") { const i = S.comps.filter(c => c.type === "us").length; return [[B.L + B.front - 1.5, 0, 0], [20, B.W / 2 - 1, 90], [20, -B.W / 2 + 1, -90], [-B.rear + 1.5, 0, 180]][i] || [15, 0, 0]; }
   return spots[type] || [15, 0, 0];
@@ -1098,7 +1104,8 @@ const SCHEM = {
   ir5: { A: [11, 12, 13, 14, 15].map(n => "A" + n), D: [53, 51, 49, 47, 45].map(n => "D" + n) },
   us: [["CN7", 41, 43], ["CN6", 37, 39], ["CN5", 33, 35], ["CN2", 29, 31]],
   susServo: [11, 12],
-  dip: [22, 24, 26, 28],                                                         // DIP 스위치 SW1~4 기본 핀 (Claude 선정, 회로도에 없음)                                                            // 서보 + 초음파 모듈의 서보 SIG 기본 핀 (Claude 선정, 회로도에 없음)      // [커넥터, TRIG(2번), ECHO(3번)], VCC = 5V (회로도 +3.3V 표기 → shield_pinmap.md에서 5V로 정정)
+  dip: [22, 24, 26, 28],
+  tog: 22,                                                                       // 토글 스위치 기본 핀 (Claude 선정, 회로도에 없음)                                                         // DIP 스위치 SW1~4 기본 핀 (Claude 선정, 회로도에 없음)                                                            // 서보 + 초음파 모듈의 서보 SIG 기본 핀 (Claude 선정, 회로도에 없음)      // [커넥터, TRIG(2번), ECHO(3번)], VCC = 5V (회로도 +3.3V 표기 → shield_pinmap.md에서 5V로 정정)
 };
 function applySchematic(quiet = false) {
   const V5 = PWR("5V"), V33 = PWR("3V3"), G = PWR("GND"); let gi = 0, vi = 0;
@@ -1117,6 +1124,7 @@ function applySchematic(quiet = false) {
     SCHEM.dip.forEach((n, i) => wire(`${c.id}.SW${i + 1}`, "D" + n)); wire(`${c.id}.COM`, nextG());
     done.push(`DIP SW1~4 = D${SCHEM.dip.join("·D")}`);
   }
+  for (const c of S.comps.filter(c => c.type === "tog")) { wire(`${c.id}.SW`, "D" + SCHEM.tog); wire(`${c.id}.COM`, nextG()); done.push(`토글 스위치 = D${SCHEM.tog}`); }
   // 초음파 커넥터는 단독 초음파 → 서보 모듈 순서로 배정 (합계 4개)
   [...S.comps.filter(c => c.type === "us").sort((a, b) => a.id.localeCompare(b.id)), ...S.comps.filter(c => c.type === "sus").sort((a, b) => a.id.localeCompare(b.id))].forEach((c, i) => {
     const [cn, trig, echo] = SCHEM.us[i];
@@ -1162,7 +1170,7 @@ function buildSel() {
       h += `<tr><td class="n">${p.label}</td><td class="${st ? "st-" + st : ""}">${tos.map(epName).join(", ") || "—"}</td><td class="n">${third}</td><td>${tos.length ? `<button type="button" data-unwire="${ref}" aria-label="${p.label} 연결 해제">✕</button>` : ""}</td></tr>`;
     }
     h += `</tbody></table></div>`;
-    if (c.type === "dip") h += `<div class="row" style="gap:6px;flex-wrap:wrap">${[0, 1, 2, 3].map(i => `<button type="button" class="${c.sw?.[i] ? "on" : ""}" data-dipsw="${i}" aria-pressed="${!!c.sw?.[i]}">SW${i + 1} ${c.sw?.[i] ? "ON" : "OFF"}</button>`).join("")}</div><p class="sub">ON = 핀이 GND에 붙어 LOW. 코드에서 pinMode(핀, INPUT_PULLUP) 후 digitalRead == LOW면 ON. 시뮬레이션 탭에서 차마다 따로 바꿀 수 있음</p>`;
+    if (SWN[c.type]) h += `<div class="row" style="gap:6px;flex-wrap:wrap">${Array.from({ length: SWN[c.type] }, (_, i) => `<button type="button" class="${c.sw?.[i] ? "on" : ""}" data-dipsw="${i}" aria-pressed="${!!c.sw?.[i]}">${swName(c, i)} ${c.sw?.[i] ? "ON" : "OFF"}</button>`).join("")}</div><p class="sub">ON = 핀이 GND에 붙어 LOW. 코드에서 pinMode(핀, INPUT_PULLUP) 후 digitalRead == LOW면 ON. 시뮬레이션 탭에서 차마다 따로 바꿀 수 있음</p>`;
     if (c.type.startsWith("ir")) h += `<p class="sub">원점 = ${c.type === "ir5" ? "3번(중앙, 전방 돌출)" : "0번(중앙)"} 센서 중심. ANALOG 커넥터에서 뽑으면 analogRead, DIGITAL이면 digitalRead.</p>`;
   }
   body.innerHTML = h;
@@ -1171,7 +1179,7 @@ function buildSel() {
   $("rotL").onclick = () => { c.yaw = norm(c.yaw + 5); changed(true); };
   $("rotR").onclick = () => { c.yaw = norm(c.yaw - 5); changed(true); };
   if ($("selDel")) $("selDel").onclick = () => removeComp(c.id);
-  body.querySelectorAll("[data-dipsw]").forEach(b => b.onclick = () => { c.sw = [0, 1, 2, 3].map(i => (c.sw || [])[i] ? 1 : 0); c.sw[+b.dataset.dipsw] ^= 1; changed(true); });
+  body.querySelectorAll("[data-dipsw]").forEach(b => b.onclick = () => { c.sw = Array.from({ length: SWN[c.type] }, (_, i) => (c.sw || [])[i] ? 1 : 0); c.sw[+b.dataset.dipsw] ^= 1; changed(true); });
   body.querySelectorAll("[data-unwire]").forEach(b => b.onclick = () => { S.wires = S.wires.filter(w => w.from !== b.dataset.unwire && w.to !== b.dataset.unwire); changed(true); });
 }
 const norm = a => { a = ((a + 180) % 360 + 360) % 360 - 180; return a === -180 ? 180 : a; };
@@ -1368,6 +1376,9 @@ function draw() {
       if (c.type === "dip") {                                   // 스위치 4개: 노브가 앞쪽이면 ON
         for (let i = 0; i < 4; i++) { const l = 3.9 - i * 2.6 + 1.3; path(rectC(c, -3, 5, l - 0.9, l + 0.9)); ctx.fillStyle = "#f4f4f2"; ctx.fill();
           path(rectC(c, c.sw?.[i] ? 1.5 : -2.5, c.sw?.[i] ? 4.5 : 0.5, l - 0.7, l + 0.7)); ctx.fillStyle = c.sw?.[i] ? colors.accent : colors.fg; ctx.fill(); }
+      } else if (c.type === "tog") {                            // 레버가 앞쪽이면 ON
+        path(rectC(c, -3, 3, -1.6, 1.6)); ctx.fillStyle = "#f4f4f2"; ctx.fill();
+        path(rectC(c, c.sw?.[0] ? 0 : -3.5, c.sw?.[0] ? 3.5 : 0, -1, 1)); ctx.fillStyle = c.sw?.[0] ? colors.accent : colors.fg; ctx.fill();
       } else label(T.short, toBodyC(c, 2, 0), "#fff", Math.max(8, Math.min(12, s / 10 * 3.2)));
       if (c.type === "drive" || c.type === "steer" || c.type === "brake") { const [a, b] = toPx(...toBodyC(c, f1 * 0.45, 0)); ctx.beginPath(); ctx.arc(a, b, Math.max(2 * k, 0.35 * s), 0, 2 * Math.PI); ctx.fillStyle = colors["part-edge"]; ctx.fill(); }
     }
@@ -1710,7 +1721,7 @@ function carConfig(car) {
     }
     const us = S.comps.filter(c => c.type === "us" || c.type === "sus").map(c => ({ x: c.x, y: c.y, yaw: c.yaw * D2R, trig: pinOf(`${c.id}.TRIG`), echo: pinOf(`${c.id}.ECHO`),
       servo: c.type === "sus" ? pinOf(`${c.id}.SIG`) : -1 }));
-    const dip = S.comps.filter(c => c.type === "dip").flatMap(c => [0, 1, 2, 3].map(i => ({ pin: pinOf(`${c.id}.SW${i + 1}`), on: !!c.sw?.[i] }))).filter(d => d.pin >= 0);
+    const dip = S.comps.filter(c => SWN[c.type]).flatMap(c => Array.from({ length: SWN[c.type] }, (_, i) => ({ pin: pinOf(`${c.id}.${swKey(c, i)}`), on: !!c.sw?.[i] }))).filter(d => d.pin >= 0);
     const B = S.body, hw = B.W / 2 + 1.3;
     return { act: D.act, ir: ir.filter(s => s.wired), irAll: ir, us, dip, params: { ...S.params }, body: { ...B }, shapes,
       foot: [[-B.rear, hw], [B.L + B.front, hw], [B.L + B.front, -hw], [-B.rear, -hw]] };
@@ -2041,7 +2052,7 @@ function renderCarList() {
     renderSimUI();
   });
 }
-const dipComp = car => (car.design.components || []).find(c => c.type === "dip");
+const dipComp = car => (car.design.components || []).find(c => SWN[c.type]);
 function renderSel() {
   const car = selCar(), body = $("sselBody");
   if (!car) { $("sselTitle").textContent = "선택한 차량"; $("sselStatus").textContent = ""; $("sselStatus").className = "status"; body.innerHTML = `<p class="sub">보드나 아래 목록에서 차를 클릭하세요.</p>`; return; }
@@ -2052,14 +2063,14 @@ function renderSel() {
     <div class="fld three"><label for="ssX">출발 x [cm]<input id="ssX" type="number" step="0.5" value="${+car.start.x.toFixed(1)}"${stopped ? "" : " disabled"}></label>
       <label for="ssY">출발 y [cm]<input id="ssY" type="number" step="0.5" value="${+car.start.y.toFixed(1)}"${stopped ? "" : " disabled"}></label>
       <label for="ssW">출발 yaw [°]<input id="ssW" type="number" step="5" value="${norm(Math.round(car.start.yaw / D2R))}"${stopped ? "" : " disabled"}></label></div>
-    ${dipComp(car) ? `<div><span class="sub">DIP 스위치 (ON = LOW, 실행 중에도 바꿀 수 있음)</span><div class="row" style="gap:6px;margin-top:4px;flex-wrap:wrap">${[0, 1, 2, 3].map(i => `<button type="button" class="${dipComp(car).sw?.[i] ? "on" : ""}" data-simdip="${i}" aria-pressed="${!!dipComp(car).sw?.[i]}">SW${i + 1} ${dipComp(car).sw?.[i] ? "ON" : "OFF"}</button>`).join("")}</div></div>` : ""}
+    ${dipComp(car) ? `<div><span class="sub">${TYPES[dipComp(car).type].name} (ON = LOW, 코드가 setup에서 읽으면 정지 후 다시 실행해야 반영)</span><div class="row" style="gap:6px;margin-top:4px;flex-wrap:wrap">${Array.from({ length: SWN[dipComp(car).type] }, (_, i) => `<button type="button" class="${dipComp(car).sw?.[i] ? "on" : ""}" data-simdip="${i}" aria-pressed="${!!dipComp(car).sw?.[i]}">${swName(dipComp(car), i)} ${dipComp(car).sw?.[i] ? "ON" : "OFF"}</button>`).join("")}</div></div>` : ""}
     <p class="sub" id="ssLive"></p>
     <div class="sel-actions"><button type="button" id="ssLayout">레이아웃 수정</button><button type="button" id="ssCode">코드 열기</button><button type="button" id="ssDel" class="danger">삭제</button></div>`;
   $("ssName").oninput = e => { car.name = e.target.value || `${car.id}번 차`; $("sselTitle").textContent = car.name; renderCarList(); renderDockHead(); simSave(); };
   body.querySelectorAll("[data-col]").forEach(b => b.onclick = () => { car.color = b.dataset.col; simSave(); renderSimUI(); });
   for (const [id, k, f] of [["ssX", "x", v => v], ["ssY", "y", v => v], ["ssW", "yaw", v => v * D2R]]) $(id).onchange = e => { const v = parseFloat(e.target.value); if (Number.isFinite(v) && car.status === "stopped" && Math.abs(f(v) - car.start[k]) > 1e-9) { poseMark(car); car.start[k] = f(v); car.pose = { ...car.pose, ...car.start }; simSave(); } };
   body.querySelectorAll("[data-simdip]").forEach(b => b.onclick = () => {
-    const d = dipComp(car); d.sw = [0, 1, 2, 3].map(i => (d.sw || [])[i] ? 1 : 0); d.sw[+b.dataset.simdip] ^= 1;
+    const d = dipComp(car); d.sw = Array.from({ length: SWN[d.type] }, (_, i) => (d.sw || [])[i] ? 1 : 0); d.sw[+b.dataset.simdip] ^= 1;
     car.cfg = carConfig(car); car.worker?.postMessage({ type: "dip", dip: car.cfg.dip }); simSave(); renderSel(); });
   $("ssLayout").onclick = () => startLayoutEdit(car);
   $("ssCode").onclick = () => { setDock("code"); $("dockDetail").scrollIntoView({ behavior: "smooth", block: "nearest" }); };
