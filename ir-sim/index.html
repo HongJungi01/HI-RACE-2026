@@ -1837,7 +1837,7 @@ function onCarMsg(car, d) {
   car.busy = false;
   if (car.status === "stopped") return;
   const prev = car.pose;
-  car.pose = { x: d.x, y: d.y, yaw: d.yaw, v: d.v, delta: d.delta, servo: d.servo, pwm: d.pwm, t: d.t, slip: d.slip, usAng: d.usAng };
+  car.pose = { x: d.x, y: d.y, yaw: d.yaw, v: d.v, delta: d.delta, servo: d.servo, pwm: d.pwm, t: d.t, slip: d.slip, usAng: d.usAng, usD: d.usD };
   // 충돌: 다른 차 외곽과 겹치면 이번 이동을 되돌리고 멈춤
   car.hit = false;
   for (const o of SIM.cars) if (o !== car && o.status !== "hidden" && polysOverlap(footWorld(car, car.pose), footWorld(o, o.pose))) { car.hit = true; break; }
@@ -1930,13 +1930,23 @@ function drawSim() {
     car.trail.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.stroke(); g.globalAlpha = 1;
   }
   // 차량
+  const usLabels = [];
   for (const car of SIM.cars) {
     const p = car.pose, col = ccol(car.color), sel = car.id === SIM.sel, B = car.cfg.body;
     world(); g.translate(p.x, p.y); g.rotate(p.yaw);
     if (sel) car.cfg.us.forEach((u, ui) => {                 // 선택한 차의 초음파 빔 (서보 모듈은 현재 서보 각도만큼 회전)
-      g.save(); g.translate(u.x, u.y); g.rotate(u.yaw + (p.usAng?.[ui] || 0)); g.beginPath(); g.moveTo(0, 0);
-      for (let a = -15; a <= 15; a += 3) g.lineTo(80 * Math.cos(a * D2R), 80 * Math.sin(a * D2R));
-      g.closePath(); g.fillStyle = colors.beam; g.fill(); g.restore();
+      // 측정값이 있으면 그 거리까지 채우고 끝에 호, 에코 없으면 200 cm 점선 윤곽만, 아직 값이 없으면(정지 직후) 방향만 80 cm
+      const m = p.usD?.[ui], d = m ? m[0] : undefined, ang = u.yaw + (p.usAng?.[ui] || 0);
+      const fan = r => { g.beginPath(); g.moveTo(0, 0); for (let a = -15; a <= 15; a += 3) g.lineTo(r * Math.cos(a * D2R), r * Math.sin(a * D2R)); g.closePath(); };
+      g.save(); g.translate(u.x, u.y); g.rotate(ang);
+      if (d === undefined) { fan(80); g.fillStyle = colors.beam; g.fill(); }
+      else if (d === null) { fan(200); g.setLineDash([4 * k / scam.s, 4 * k / scam.s]); g.lineWidth = k / scam.s; g.strokeStyle = colors["beam-edge"]; g.globalAlpha = 0.6; g.stroke(); g.setLineDash([]); g.globalAlpha = 1; }
+      else { fan(d); g.fillStyle = colors.beam; g.fill(); g.fill();
+        g.beginPath(); g.arc(0, 0, d, -15 * D2R, 15 * D2R); g.lineWidth = 2.2 * k / scam.s; g.strokeStyle = colors.us; g.stroke(); }
+      g.restore();
+      const r = d == null ? (d === null ? 200 : null) : d + 6;
+      if (r != null) { const lx = u.x + r * Math.cos(ang), ly = u.y + r * Math.sin(ang);
+        usLabels.push([p.x + lx * Math.cos(p.yaw) - ly * Math.sin(p.yaw), p.y + lx * Math.sin(p.yaw) + ly * Math.cos(p.yaw), d == null ? "없음" : `${Math.round(d)} cm`, m[1]]); }
     });
     world(); g.translate(p.x, p.y); g.rotate(p.yaw);
     car.cfg.us.forEach((u, ui) => { if (u.servo == null || u.servo < 0) return;   // 서보 모듈 센서 방향 표시 (모든 차)
@@ -1958,6 +1968,10 @@ function drawSim() {
     g.fillRect(lx - tw / 2, ly - (B.W / 2 + 4) * scam.s - 18 * k, tw, 17 * k); g.globalAlpha = 1; g.fillStyle = "#fff";
     g.fillText(car.name, lx, ly - (B.W / 2 + 4) * scam.s - 4 * k);
     // 회전 핸들 (선택 + 정지 상태)
+    for (const [wx, wy, txt, src] of usLabels.splice(0)) {   // 초음파 거리 라벨 (화면 좌표)
+      const [tx, ty] = sToPx(wx, wy); g.font = `500 ${11 * k}px "IBM Plex Mono", monospace`; g.textAlign = "center"; g.textBaseline = "middle";
+      const w = g.measureText(txt).width + 8 * k; g.fillStyle = colors.panel; g.globalAlpha = 0.85; g.fillRect(tx - w / 2, ty - 8 * k, w, 16 * k); g.globalAlpha = 1;
+      g.fillStyle = txt === "없음" ? colors.muted : colors.us; g.fillText(txt, tx, ty); }
     if (sel && car.status === "stopped") { const [hx, hy] = simHandle(car); g.strokeStyle = colors.accent; g.lineWidth = 1.5 * k;
       g.beginPath(); g.moveTo(lx, ly); g.lineTo(hx, hy); g.stroke(); g.beginPath(); g.arc(hx, hy, 7 * k, 0, 2 * Math.PI); g.fillStyle = colors.panel; g.fill(); g.stroke();
       g.beginPath(); g.arc(hx, hy, 3.5 * k, -Math.PI * 0.9, Math.PI * 0.5); g.stroke(); }

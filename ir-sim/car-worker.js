@@ -142,7 +142,7 @@ function usMeasure(sx, sy, heading, segs) {
 }
 
 // ---------------- 상태 ----------------
-let irVar = [], floorSeed = 0, servoQ = [], usServo = [];
+let irVar = [], floorSeed = 0, servoQ = [], usServo = [], usLast = [];
 let cfg = null, hexText = "", mega = null, veh = null, meas = {}, others = [], serial = "", trail = [], pinState = {};
 const D2R = Math.PI / 180, clamp = (a, lo, hi) => Math.min(hi, Math.max(lo, a));
 const servoDeg = us => (us - 544) / (2400 - 544) * 180;
@@ -150,7 +150,7 @@ const fresh = (m, c) => m && m.last && c - m.last < 16000 * 50;
 
 function boot() {
   mega = new Mega(hexText);
-  meas = {}; serial = ""; pinState = {};
+  meas = {}; serial = ""; pinState = {}; usLast = [];
   const act = cfg.act;
   const dec = new TextDecoder("utf-8");                       // Serial 바이트 → UTF-8 (한글 출력 깨짐 방지)
   mega.usart.onByteTransmit = b => { serial += dec.decode(new Uint8Array([b]), { stream: true }); };
@@ -169,6 +169,7 @@ function boot() {
       const c = mega.cpu.cycles, co = Math.cos(veh.yaw), si = Math.sin(veh.yaw);
       const sx = veh.x + u.x * co - u.y * si, sy = veh.y + u.x * si + u.y * co;
       const d = usMeasure(sx, sy, veh.yaw + u.yaw + (usServo[ui] ? (usServo[ui].ang - 90) * D2R : 0), others);
+      usLast[ui] = { d, c };                                  // 화면 표시용: 코드가 마지막으로 받은 거리
       const w = d == null ? 38000 : 2 * d / 0.0343;          // 왕복 [µs], 에코 없으면 38 ms
       mega.at(c + 460 * 16, () => mega.setPin(u.echo, true)); mega.at(c + (460 + w) * 16, () => mega.setPin(u.echo, false)); } prev = s; }); }
   const P0 = cfg.params, uni = () => Math.random() * 2 - 1;
@@ -289,8 +290,22 @@ function vehicleStep(dt, cycle0) {
   }
 }
 
+// 화면 표시용 초음파 거리: 코드가 0.3 s 안에 쟀으면 그 값(src 1), 아니면 지금 자세로 한 번 재 본 값(src 0). null = 에코 없음
+function usView() {
+  if (!cfg || !veh) return [];
+  const now = mega ? mega.cpu.cycles : 0, co = Math.cos(veh.yaw), si = Math.sin(veh.yaw);
+  return cfg.us.map((u, ui) => {
+    const L = usLast[ui];
+    if (L && now - L.c < 0.3 * 16e6) return [L.d == null ? null : +L.d.toFixed(1), 1];
+    if (u.trig < 0 && u.echo < 0) return [null, 0];
+    const sx = veh.x + u.x * co - u.y * si, sy = veh.y + u.x * si + u.y * co;
+    const d = usMeasure(sx, sy, veh.yaw + u.yaw + (usServo[ui] ? (usServo[ui].ang - 90) * D2R : 0), others);
+    return [d == null ? null : +d.toFixed(1), 0];
+  });
+}
+
 function state() {
-  const out = { type: "state", x: veh.x, y: veh.y, yaw: veh.yaw, v: veh.v, slip: veh.slip || 0, usAng: usServo.map(s => s ? (s.ang - 90) * D2R : 0), delta: veh.delta, servo: veh.servo, pwm: veh.pwm, dir: veh.dir, t: mega.cpu.cycles / 16e6, serial, trail };
+  const out = { type: "state", usD: usView(), x: veh.x, y: veh.y, yaw: veh.yaw, v: veh.v, slip: veh.slip || 0, usAng: usServo.map(s => s ? (s.ang - 90) * D2R : 0), delta: veh.delta, servo: veh.servo, pwm: veh.pwm, dir: veh.dir, t: mega.cpu.cycles / 16e6, serial, trail };
   serial = ""; trail = [];
   return out;
 }
