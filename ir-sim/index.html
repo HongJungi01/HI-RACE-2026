@@ -147,8 +147,10 @@ textarea { min-height: 160px; resize: vertical; line-height: 1.4; }
 .carrow .meta .dirty { color: var(--warn); }
 .carrow .meta .bad { color: var(--err); }
 .carrow .ctl { grid-area: ctl; display: flex; gap: 4px; }
-.carrow .ctl button { padding: 3px 8px; min-width: 32px; }
+.carrow .ctl button { padding: 3px 8px; min-width: 32px; white-space: nowrap; }
 .carrow .ctl button.eye.on { background: var(--cc); border-color: var(--cc); color: #fff; }
+.carrow .ctl button.del { margin-left: auto; }
+.carrow .ctl button.del.armed { border-color: var(--err); background: var(--err-bg); color: var(--err); }
 .dock-detail { min-width: 0; border: 1px solid var(--line); border-top: 4px solid var(--cc, var(--line)); border-radius: 5px; padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 8px; }
 .dd-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .dd-head b { font-size: 14px; }
@@ -2038,6 +2040,7 @@ function codeState(car) {
   if (car.hexSrc !== car.code) return ["코드 수정됨 · 다음 실행 때 컴파일", "dirty"];
   return [`컴파일됨${car.flash ? ` · ${car.flash} B` : ""}`, ""];
 }
+const delArmed = c => c._delArm && Date.now() - c._delArm < 3000;
 function renderCarList() {
   const el = $("dpCars");
   $("dockCount").textContent = `${SIM.cars.length} / ${MAX_CARS}대 · 차를 고르면 오른쪽에 그 차의 코드와 Serial이 열립니다`;
@@ -2050,11 +2053,16 @@ function renderCarList() {
         ${c.status === "running" ? `<button type="button" data-act="pause" title="${esc(c.name)} 일시정지">⏸ 일시정지</button>` : `<button type="button" data-act="run" title="${esc(c.name)} ${c.status === "paused" ? "계속" : "실행"}"${busy ? " disabled" : ""}>▶ ${c.status === "paused" ? "계속" : "실행"}</button>`}
         <button type="button" data-act="stop" title="정지 · 출발 위치로"${c.status === "stopped" ? " disabled" : ""}>⏹</button>
         <button type="button" data-act="eye" class="eye${SIM.follow === c.id ? " on" : ""}" title="이 차 시점으로 보기" aria-pressed="${SIM.follow === c.id}">👁</button>
+        <button type="button" data-act="del" class="danger del${delArmed(c) ? " armed" : ""}" title="${esc(c.name)} 삭제 (두 번 누름)">${delArmed(c) ? "삭제 확인" : "삭제"}</button>
       </span></div>`; }).join("");
   el.querySelectorAll(".carrow").forEach(row => row.onclick = ev => {
     const car = SIM.cars.find(c => c.id === +row.dataset.car), act = ev.target.closest("button")?.dataset.act;
     SIM.sel = car.id;
-    if (act === "run") runCar(car); else if (act === "pause") pauseCar(car); else if (act === "stop") stopCar(car);
+    if (act === "del") {                                     // 두 번 눌러 삭제 (3초 안에)
+      if (delArmed(car)) { removeCar(car); return; }
+      car._delArm = Date.now(); setTimeout(() => { if (SIM.cars.includes(car)) renderCarList(); }, 3100);
+    }
+    else if (act === "run") runCar(car); else if (act === "pause") pauseCar(car); else if (act === "stop") stopCar(car);
     else if (act === "eye") { SIM.follow = SIM.follow === car.id ? null : car.id; if (SIM.follow) scam.s = Math.max(scam.s, 6 * dpr()); }
     renderSimUI();
   });
@@ -2072,7 +2080,7 @@ function renderSel() {
       <label for="ssW">출발 yaw [°]<input id="ssW" type="number" step="5" value="${norm(Math.round(car.start.yaw / D2R))}"${stopped ? "" : " disabled"}></label></div>
     ${dipComp(car) ? `<div><span class="sub">${TYPES[dipComp(car).type].name} (ON = LOW, 코드가 setup에서 읽으면 정지 후 다시 실행해야 반영)</span><div class="row" style="gap:6px;margin-top:4px;flex-wrap:wrap">${Array.from({ length: SWN[dipComp(car).type] }, (_, i) => `<button type="button" class="${dipComp(car).sw?.[i] ? "on" : ""}" data-simdip="${i}" aria-pressed="${!!dipComp(car).sw?.[i]}">${swName(dipComp(car), i)} ${dipComp(car).sw?.[i] ? "ON" : "OFF"}</button>`).join("")}</div></div>` : ""}
     <p class="sub" id="ssLive"></p>
-    <div class="sel-actions"><button type="button" id="ssLayout">레이아웃 수정</button><button type="button" id="ssCode">코드 열기</button><button type="button" id="ssDel" class="danger">삭제</button></div>`;
+    <div class="sel-actions"><button type="button" id="ssLayout">레이아웃 수정</button><button type="button" id="ssCode">코드 열기</button></div>`;
   $("ssName").oninput = e => { car.name = e.target.value || `${car.id}번 차`; $("sselTitle").textContent = car.name; renderCarList(); renderDockHead(); simSave(); };
   body.querySelectorAll("[data-col]").forEach(b => b.onclick = () => { car.color = b.dataset.col; simSave(); renderSimUI(); });
   for (const [id, k, f] of [["ssX", "x", v => v], ["ssY", "y", v => v], ["ssW", "yaw", v => v * D2R]]) $(id).onchange = e => { const v = parseFloat(e.target.value); if (Number.isFinite(v) && car.status === "stopped" && Math.abs(f(v) - car.start[k]) > 1e-9) { poseMark(car); car.start[k] = f(v); car.pose = { ...car.pose, ...car.start }; simSave(); } };
@@ -2081,7 +2089,6 @@ function renderSel() {
     car.cfg = carConfig(car); car.worker?.postMessage({ type: "dip", dip: car.cfg.dip }); simSave(); renderSel(); });
   $("ssLayout").onclick = () => startLayoutEdit(car);
   $("ssCode").onclick = () => { setDock("code"); $("dockDetail").scrollIntoView({ behavior: "smooth", block: "nearest" }); };
-  $("ssDel").onclick = () => { if (car._delArm && Date.now() - car._delArm < 3000) removeCar(car); else { car._delArm = Date.now(); $("ssDel").textContent = "한 번 더 누르면 삭제"; } };
 }
 function tickSimUI() {                                        // 매 프레임 바뀌는 값만 갱신
   const car = selCar(); if (!car) return;
