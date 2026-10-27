@@ -152,13 +152,15 @@ function boot() {
   mega = new Mega(hexText);
   meas = {}; serial = ""; pinState = {};
   const act = cfg.act;
-  mega.usart.onByteTransmit = b => { serial += String.fromCharCode(b); };
+  const dec = new TextDecoder("utf-8");                       // Serial 바이트 → UTF-8 (한글 출력 깨짐 방지)
+  mega.usart.onByteTransmit = b => { serial += dec.decode(new Uint8Array([b]), { stream: true }); };
   for (let n = 0; n < 16; n++) mega.adc.channelValues[n] = 0;
   if (act.encA >= 0) mega.setPin(act.encA, false); if (act.encB >= 0) mega.setPin(act.encB, false);
   const watch = (n, key) => { if (n < 0) return; const [p] = PINMAP[n]; const m = meas[key] = { hi: 0, per: 0, rise: 0, state: false };
     mega.port[p].addListener(() => { const s = mega.getPin(n), c = mega.cpu.cycles; if (s === m.state) return;
       if (s) { if (m.rise) m.per = (c - m.rise) / 16; m.rise = c; } else if (m.rise) m.hi = (c - m.rise) / 16; m.state = s; m.last = c; }); };
   watch(act.steer, "steer"); watch(act.brake, "brake"); watch(act.pwm, "pwm");
+  setDip(cfg.dip || []);
   // 초음파: TRIG 하강 엣지 → 그 순간 자세로 거리 계산 → ECHO 펄스 예약
   // 서보 + 초음파 모듈: 서보 SIG 펄스 → 각도(90° = 정면, + = 반시계), 속도 제한
   usServo = cfg.us.map((u, i) => { if (u.servo == null || u.servo < 0) return null; watch(u.servo, "us" + i); return { ang: 90 }; });
@@ -181,6 +183,8 @@ function boot() {
 const hash = (i, j) => { const s = Math.sin(i * 127.1 + j * 311.7) * 43758.5453; return (s - Math.floor(s)) * 2 - 1; };
 function valueNoise(x, y) { const i = Math.floor(x), j = Math.floor(y), fx = x - i, fy = y - j, sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
   const a = hash(i, j), b = hash(i + 1, j), c = hash(i, j + 1), d = hash(i + 1, j + 1); return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy; }
+// DIP 스위치: ON = GND에 붙어 LOW, OFF = 풀업으로 HIGH
+function setDip(list) { for (const d of list) if (d.pin >= 0) mega.setPin(d.pin, !d.on); }
 // IR: 센서 지름 irSpot 원 안 7점 반사율 평균 → ADC, 디지털은 임계값 비교
 const SPOT = [[0, 0], ...[0, 1, 2, 3, 4, 5].map(i => [Math.cos(i * Math.PI / 3) * 0.7, Math.sin(i * Math.PI / 3) * 0.7])];
 function updateIR() {
@@ -294,6 +298,7 @@ function state() {
 self.onmessage = ({ data: m }) => {
   try {
     if (m.type === "map") { buildMap(m.map); return; }
+    if (m.type === "dip") { if (cfg) cfg.dip = m.dip; if (mega) setDip(m.dip); return; }
     if (m.type === "init") { cfg = m.cfg; hexText = m.hex; boot(); self.postMessage({ type: "ready" }); self.postMessage(state()); return; }
     if (m.type === "reset") { if (m.cfg) cfg = m.cfg; boot(); self.postMessage(state()); return; }
     if (m.type === "step") {
