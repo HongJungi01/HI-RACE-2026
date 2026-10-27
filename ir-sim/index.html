@@ -804,6 +804,10 @@ const TYPES = {
   ir5: { name: "IR 5ch 모듈", short: "IR 5ch", note: "118 × 60 mm · x 실측", color: "w-ir", single: true, pins: irPins("ir5") },
   us: { name: "초음파 HC-SR04", short: "US", note: "최대 4개 · 빔 반각 15°", color: "w-us", max: 4,
     pins: row(-16, ["GND", "ECHO", "TRIG", "VCC"]).map(([k, at]) => ({ key: k, label: k, req: k === "VCC" ? "vcc" : k === "GND" ? "gnd" : "digital", cat: k === "VCC" || k === "GND" ? "pwr" : "us", at })) },
+  // 서보 + 초음파: 서보 혼 위에 HC-SR04. 서보 90° = 부품 정면, 각도↑ = 반시계(왼쪽). 초음파 개수(최대 4)에 포함, 이 모듈은 최대 2개
+  sus: { name: "서보 + 초음파", short: "SUS", note: "최대 2개 · 초음파 4개 안에 포함 · 서보 90° = 정면", color: "w-us", max: 2,
+    pins: [...row(-24, ["GND", "ECHO", "TRIG", "VCC"]).map(([k, [f, l]]) => ({ key: k, label: "초음파 " + k, req: k === "VCC" ? "vcc" : k === "GND" ? "gnd" : "digital", cat: k === "VCC" || k === "GND" ? "pwr" : "us", at: [f, l + 9] })),
+           ...row(-24, ["SIG", "SVCC", "SGND"]).map(([k, [f, l]]) => ({ key: k, label: { SIG: "서보 SIG", SVCC: "서보 VCC", SGND: "서보 GND" }[k], req: k === "SIG" ? "servo" : k === "SVCC" ? "vcc" : "gnd", cat: k === "SIG" ? "act" : "pwr", at: [f, l - 11] }))] },
   steer: { name: "조향 서보", short: "조향", note: "Servo.write · 40 × 20 mm", color: "w-act", single: true, box: [[-10, 10], [-20, 20]],
     pins: row(-14, ["SIG", "VCC", "GND"]).map(([k, at]) => ({ key: k, label: k, req: k === "SIG" ? "servo" : k.toLowerCase(), cat: k === "SIG" ? "act" : "pwr", at })) },
   brake: { name: "브레이크 서보", short: "브레이크", note: "Servo.write · 40 × 20 mm", color: "w-act", single: true, box: [[-10, 10], [-20, 20]],
@@ -818,7 +822,10 @@ const TYPES = {
            ...row(-18, ["ENCA", "ENCB", "EVCC", "EGND"]).map(([k, at]) => ({ key: k, label: { ENCA: "엔코더 A", ENCB: "엔코더 B", EVCC: "엔코더 VCC", EGND: "엔코더 GND" }[k],
              req: k === "ENCA" ? "extint" : k === "ENCB" ? "digital" : k === "EVCC" ? "vcc" : "gnd", cat: k === "ENCA" || k === "ENCB" ? "act" : "pwr", at }))] },
 };
-const PALETTE = ["ir5", "ir11", "us", "steer", "drive", "driver", "brake"];
+const PALETTE = ["ir5", "ir11", "us", "sus", "steer", "drive", "driver", "brake"];
+const US_TOTAL = 4;                                   // 초음파(단독 + 서보 모듈) 합계 최대
+const usCount = () => S.comps.filter(c => c.type === "us" || c.type === "sus").length;
+const typeFull = t => { const T = TYPES[t], n = S.comps.filter(c => c.type === t).length; return T.single ? n >= 1 : n >= T.max || ((t === "us" || t === "sus") && usCount() >= US_TOTAL); };
 
 // ================= 기본 상태 (combined.ino 배선) =================
 // Mega 전원 핀 id (MEGA_PINS 순서 기준)
@@ -899,7 +906,7 @@ const save = () => { histPush(); if (editingCar) return; try { localStorage.setI
 const comp = id => S.comps.find(c => c.id === id);
 const pinDef = (c, key) => TYPES[c.type].pins?.find(p => p.key === key);
 const compPins = c => TYPES[c.type].pins || [];
-const compName = c => TYPES[c.type].max ? `${TYPES[c.type].short}${c.id.slice(2)}` : TYPES[c.type].name;
+const compName = c => TYPES[c.type].max ? `${TYPES[c.type].short}${c.id.slice(c.type.length)}` : TYPES[c.type].name;
 const catColor = cat => cat === "mot" ? "w-act" : "w-" + cat;
 function epInfo(ep) {             // 끝점 → {mega, kind, req, comp, p}
   if (!ep.includes(".")) { const m = megaPinById[ep]; return m ? { mega: true, kind: m.kind, m } : null; }
@@ -941,7 +948,7 @@ function derive() {
   const ir = [], us = [];
   for (const c of S.comps) {
     if (c.type === "ir5" || c.type === "ir11") for (const p of compPins(c)) if (p.sensor != null) { const n = megaOf(c.id, p.key); if (n >= 0) ir.push({ comp: c.id, sensor: p.sensor, out: p.out, pin: n }); }
-    if (c.type === "us") us.push({ id: c.id, trig: megaOf(c.id, "TRIG"), echo: megaOf(c.id, "ECHO") });
+    if (c.type === "us" || c.type === "sus") us.push({ id: c.id, trig: megaOf(c.id, "TRIG"), echo: megaOf(c.id, "ECHO"), servo: c.type === "sus" ? megaOf(c.id, "SIG") : -1 });
   }
   return { conn, act, ir, us };
 }
@@ -960,7 +967,7 @@ function toJSON() {
       actuators: Object.fromEntries(Object.entries(D.act).map(([k, v]) => [k, pinName(v)])),
       ir_channels: D.ir.map(r => { const c = comp(r.comp), [f, l] = irL(...IRMOD[c.type].sensors[r.sensor]), [x, y] = toBodyC(c, f, l);
         return { module: r.comp, sensor: r.sensor, read: r.out === "analog" ? "analogRead" : "digitalRead", pin: pinName(r.pin), body_cm: [+x.toFixed(2), +y.toFixed(2)] }; }),
-      ultrasonic: D.us.map(u => { const c = comp(u.id); return { id: u.id, trig: pinName(u.trig), echo: pinName(u.echo), mount: { x: c.x, y: c.y, yaw: c.yaw } }; }),
+      ultrasonic: D.us.map(u => { const c = comp(u.id); return { id: u.id, type: c.type, trig: pinName(u.trig), echo: pinName(u.echo), ...(c.type === "sus" ? { servo: pinName(u.servo), servo_note: "90° = mount yaw, + = CCW" } : {}), mount: { x: c.x, y: c.y, yaw: c.yaw } }; }),
     },
   };
 }
@@ -981,7 +988,7 @@ function fromJSON(j) {
 function validate() {
   const D = derive(), issues = [], badPins = new Set(), pinState = {};   // pinState["id.KEY"] = 'error'|'warn'
   const add = (lvl, msg, refs = []) => { issues.push({ lvl, msg }); refs.forEach(r => { if (pinState[r] !== "error") pinState[r] = lvl; }); };
-  const servoUsed = Object.values({ a: D.act.steer, b: D.act.brake }).some(p => p >= 0);
+  const servoUsed = [D.act.steer, D.act.brake, ...D.us.map(u => u.servo)].some(p => p >= 0);
   const users = {};                                     // Mega io 핀 번호 → [{ref, label, cat}]
   // 전원 넷: 선으로 이어진 끝점 묶음 (부품 VCC/GND끼리 이어도 됨)
   const parent = {}, find = a => (parent[a] ??= a) === a ? a : (parent[a] = find(parent[a]));
@@ -1057,20 +1064,21 @@ function renderValidation() {
 // ================= 패널 =================
 let sel = { kind: "comp", id: "ir5" };        // {kind:'comp', id} | {kind:'wire', i} | null
 function buildPalette() {
-  $("parts").innerHTML = PALETTE.map(t => { const T = TYPES[t], n = S.comps.filter(c => c.type === t).length, full = T.single ? n >= 1 : n >= T.max;
-    return `<div class="part${full ? " used" : ""}" data-type="${t}" tabindex="${full ? -1 : 0}" role="button" aria-disabled="${full}"><b><i style="background:var(--${T.color})"></i>${T.name}</b><span>${full ? (T.single ? "배치됨" : `${T.max}/${T.max} 배치됨`) : T.max ? `${n}/${T.max} · ${T.note}` : T.note}</span></div>`; }).join("");
+  $("parts").innerHTML = PALETTE.map(t => { const T = TYPES[t], n = S.comps.filter(c => c.type === t).length, full = typeFull(t);
+    return `<div class="part${full ? " used" : ""}" data-type="${t}" tabindex="${full ? -1 : 0}" role="button" aria-disabled="${full}"><b><i style="background:var(--${T.color})"></i>${T.name}</b><span>${full ? (T.single ? "배치됨" : n >= T.max ? `${T.max}/${T.max} 배치됨` : `초음파 합계 ${US_TOTAL}개 다 씀`) : T.max ? `${n}/${T.max} · ${T.note}` : T.note}</span></div>`; }).join("");
   $("parts").querySelectorAll(".part:not(.used)").forEach(el => { el.addEventListener("pointerdown", paletteDown); el.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); addComp(el.dataset.type); } }); });
 }
 function defaultSpot(type) {
   const B = S.body;
   const spots = { ir5: [-B.rear - 2.5, 0, 180], ir11: [B.L + B.front - 0.5, 0, 0], steer: [4.5, 3.5, 0], brake: [21, 4.5, 0], drive: [1.5, 0, 90], driver: [4.5, -4.5, 90] };
+  if (type === "sus") { const i = S.comps.filter(c => c.type === "sus").length; return [[24, 0, 0], [-3, 0, 180]][i] || [15, 0, 0]; }
   if (type === "us") { const i = S.comps.filter(c => c.type === "us").length; return [[B.L + B.front - 1.5, 0, 0], [20, B.W / 2 - 1, 90], [20, -B.W / 2 + 1, -90], [-B.rear + 1.5, 0, 180]][i] || [15, 0, 0]; }
   return spots[type] || [15, 0, 0];
 }
 function addComp(type, at) {
   const T = TYPES[type], n = S.comps.filter(c => c.type === type).length;
-  if (T.single ? n >= 1 : n >= T.max) return;
-  let id = type; if (T.max) { for (let i = 1; i <= T.max; i++) if (!comp("us" + i)) { id = "us" + i; break; } }
+  if (typeFull(type)) return;
+  let id = type; if (T.max) { for (let i = 1; i <= T.max; i++) if (!comp(type + i)) { id = type + i; break; } }
   const [x, y, yaw] = defaultSpot(type);
   const c = { id, type, x: at ? Math.round(at[0] * 2) / 2 : x, y: at ? Math.round(at[1] * 2) / 2 : y, yaw };
   S.comps.push(c); sel = { kind: "comp", id }; changed(true);
@@ -1084,7 +1092,8 @@ function removeComp(id) {
 const SCHEM = {
   ir11: { A: Array.from({ length: 11 }, (_, i) => "A" + i), D: [52, 50, 48, 46, 44, 42, 40, 38, 36, 34, 32].map(n => "D" + n) },
   ir5: { A: [11, 12, 13, 14, 15].map(n => "A" + n), D: [53, 51, 49, 47, 45].map(n => "D" + n) },
-  us: [["CN7", 41, 43], ["CN6", 37, 39], ["CN5", 33, 35], ["CN2", 29, 31]],      // [커넥터, TRIG(2번), ECHO(3번)], VCC = 5V (회로도 +3.3V 표기 → shield_pinmap.md에서 5V로 정정)
+  us: [["CN7", 41, 43], ["CN6", 37, 39], ["CN5", 33, 35], ["CN2", 29, 31]],
+  susServo: [11, 12],                                                            // 서보 + 초음파 모듈의 서보 SIG 기본 핀 (Claude 선정, 회로도에 없음)      // [커넥터, TRIG(2번), ECHO(3번)], VCC = 5V (회로도 +3.3V 표기 → shield_pinmap.md에서 5V로 정정)
 };
 function applySchematic(quiet = false) {
   const V5 = PWR("5V"), V33 = PWR("3V3"), G = PWR("GND"); let gi = 0, vi = 0;
@@ -1099,10 +1108,14 @@ function applySchematic(quiet = false) {
       done.push(`${TYPES[c.type].short} A ${m.A[0]}~${m.A.at(-1)}, D ${m.D.join("·").replace(/D/g, "")}`);
     }
   }
-  S.comps.filter(c => c.type === "us").sort((a, b) => a.id.localeCompare(b.id)).forEach((c, i) => {
+  // 초음파 커넥터는 단독 초음파 → 서보 모듈 순서로 배정 (합계 4개)
+  [...S.comps.filter(c => c.type === "us").sort((a, b) => a.id.localeCompare(b.id)), ...S.comps.filter(c => c.type === "sus").sort((a, b) => a.id.localeCompare(b.id))].forEach((c, i) => {
     const [cn, trig, echo] = SCHEM.us[i];
     wire(`${c.id}.TRIG`, "D" + trig); wire(`${c.id}.ECHO`, "D" + echo); wire(`${c.id}.VCC`, nextV()); wire(`${c.id}.GND`, nextG());
-    done.push(`${compName(c)} = ${cn} (TRIG D${trig}, ECHO D${echo})`);
+    let s = "";
+    if (c.type === "sus") { const k = S.comps.filter(q => q.type === "sus").sort((a, b) => a.id.localeCompare(b.id)).indexOf(c), sp = SCHEM.susServo[k];
+      wire(`${c.id}.SIG`, "D" + sp); wire(`${c.id}.SVCC`, nextV()); wire(`${c.id}.SGND`, nextG()); s = `, 서보 D${sp}`; }
+    done.push(`${compName(c)} = ${cn} (TRIG D${trig}, ECHO D${echo}${s})`);
   });
   if (quiet) return;
   $("autoMsg").textContent = done.length ? "연결함: " + done.join(" · ") : "배치된 센서가 없습니다.";
@@ -1259,7 +1272,12 @@ function draw() {
   for (const [x, y, col] of [[0, hw, colors.car], [0, -hw, colors.car], [B.L, hw, colors.front], [B.L, -hw, colors.front]]) { path([[x - 3.25, y + 1.3], [x + 3.25, y + 1.3], [x + 3.25, y - 1.3], [x - 3.25, y - 1.3]]); ctx.fillStyle = col; ctx.fill(); }
 
   // 초음파 빔
-  for (const c of S.comps) if (c.type === "us") {
+  for (const c of S.comps) if (c.type === "us" || c.type === "sus") {
+    if (c.type === "sus") {                                   // 서보 회전 범위 (0~180°) 부채꼴
+      ctx.beginPath(); ctx.moveTo(...toPx(c.x, c.y));
+      for (let t = -90; t <= 90; t += 5) { const a = (c.yaw + t) * D2R; ctx.lineTo(...toPx(c.x + 12 * Math.cos(a), c.y + 12 * Math.sin(a))); }
+      ctx.closePath(); ctx.strokeStyle = colors["beam-edge"]; ctx.lineWidth = k; ctx.setLineDash([2 * k, 3 * k]); ctx.stroke(); ctx.setLineDash([]);
+    }
     ctx.beginPath(); ctx.moveTo(...toPx(c.x, c.y));
     for (let t = -15; t <= 15; t += 1.5) { const a = (c.yaw + t) * D2R; ctx.lineTo(...toPx(c.x + 60 * Math.cos(a), c.y + 60 * Math.sin(a))); }
     ctx.closePath(); ctx.fillStyle = colors.beam; ctx.fill(); ctx.strokeStyle = colors["beam-edge"]; ctx.lineWidth = k; ctx.setLineDash([4 * k, 4 * k]); ctx.stroke(); ctx.setLineDash([]);
@@ -1319,6 +1337,14 @@ function draw() {
         path([[x - w, y - l], [x + w, y - l], [x + w, y + l], [x - w, y + l]].map(p => tb(...p))); ctx.fillStyle = colors.pad; ctx.fill();
         if (s > 9 * k) label(String(i), tb(x, y + l + 4.5), colors.fg, 10); }
       if (s > 14 * k) for (const { cx, cy, depth, name } of Object.values(M.conn)) label(name, tb(cx, cy + depth / 2 + 3), "#eef4fb", 8.5);
+    } else if (c.type === "sus") {
+      path(rectC(c, -18, 6, -6, 6)); ctx.fillStyle = colors.part; ctx.globalAlpha = 0.9; ctx.fill(); ctx.globalAlpha = 1;   // 서보 몸체 (SG90 급)
+      ctx.strokeStyle = colors["part-edge"]; ctx.lineWidth = k; ctx.stroke();
+      ctx.strokeStyle = selc ? colors.accent : colors.us; ctx.lineWidth = (selc ? 3 : 2) * k;
+      ctx.beginPath(); ctx.moveTo(...toPx(...toBodyC(c, 2, 22.5))); ctx.lineTo(...toPx(...toBodyC(c, 2, -22.5))); ctx.stroke();
+      for (const l of [13, -13]) { path(rectC(c, 3, 15, l - 8, l + 8)); ctx.fillStyle = colors.us; ctx.fill(); }
+      { const [a, b] = toPx(c.x, c.y); ctx.beginPath(); ctx.arc(a, b, Math.max(2 * k, 0.3 * s), 0, 2 * Math.PI); ctx.fillStyle = colors["part-edge"]; ctx.fill(); }   // 회전축
+      label(compName(c), toBodyC(c, -28, 0), colors.us, 11);
     } else if (c.type === "us") {
       ctx.strokeStyle = selc ? colors.accent : colors.us; ctx.lineWidth = (selc ? 3 : 2) * k;
       ctx.beginPath(); ctx.moveTo(...toPx(...toBodyC(c, -13, 22.5))); ctx.lineTo(...toPx(...toBodyC(c, -13, -22.5))); ctx.stroke();
@@ -1394,6 +1420,7 @@ function compShape(c) {
   if (c.type === "mega") return [[0, 0], [MEGA_W, 0], [MEGA_W, MEGA_H], [0, MEGA_H]].map(p => megaL(...p));
   if (c.type === "ir5" || c.type === "ir11") return IRMOD[c.type].outline.map(p => irL(...p));
   if (c.type === "us") return [[-18, -24], [2, -24], [2, 24], [-18, 24]];
+  if (c.type === "sus") return [[-26, -24], [15, -24], [15, 24], [-26, 24]];
   const [[f0, f1], [l0, l1]] = T.box; return [[f0, l0], [f1, l0], [f1, l1], [f0, l1]];
 }
 function hitComp(bx, by) {
@@ -1519,7 +1546,7 @@ function fit() {
   draw();
 }
 const zoomMega = () => { const m = comp("mega"); if (!m) return; cam.x = m.x; cam.y = m.y; cam.span = 13; draw(); };
-$("autoPins").onclick = applySchematic;
+$("autoPins").onclick = () => applySchematic(false);
 $("vWires").onclick = () => setWires(!showWires);
 $("vRoute").onclick = autoRoute;
 $("vStraight").onclick = () => { S.wires.forEach(w => w.via = []); changed(true); };
@@ -1667,7 +1694,8 @@ function carConfig(car) {
         ir.push({ x, y, analog: a, digital: d, wired: a >= 0 || d >= 0 });
       }
     }
-    const us = S.comps.filter(c => c.type === "us").map(c => ({ x: c.x, y: c.y, yaw: c.yaw * D2R, trig: pinOf(`${c.id}.TRIG`), echo: pinOf(`${c.id}.ECHO`) }));
+    const us = S.comps.filter(c => c.type === "us" || c.type === "sus").map(c => ({ x: c.x, y: c.y, yaw: c.yaw * D2R, trig: pinOf(`${c.id}.TRIG`), echo: pinOf(`${c.id}.ECHO`),
+      servo: c.type === "sus" ? pinOf(`${c.id}.SIG`) : -1 }));
     const B = S.body, hw = B.W / 2 + 1.3;
     return { act: D.act, ir: ir.filter(s => s.wired), irAll: ir, us, params: { ...S.params }, body: { ...B }, shapes,
       foot: [[-B.rear, hw], [B.L + B.front, hw], [B.L + B.front, -hw], [-B.rear, -hw]] };
@@ -1774,7 +1802,7 @@ function onCarMsg(car, d) {
   car.busy = false;
   if (car.status === "stopped") return;
   const prev = car.pose;
-  car.pose = { x: d.x, y: d.y, yaw: d.yaw, v: d.v, delta: d.delta, servo: d.servo, pwm: d.pwm, t: d.t, slip: d.slip };
+  car.pose = { x: d.x, y: d.y, yaw: d.yaw, v: d.v, delta: d.delta, servo: d.servo, pwm: d.pwm, t: d.t, slip: d.slip, usAng: d.usAng };
   // 충돌: 다른 차 외곽과 겹치면 이번 이동을 되돌리고 멈춤
   car.hit = false;
   for (const o of SIM.cars) if (o !== car && o.status !== "hidden" && polysOverlap(footWorld(car, car.pose), footWorld(o, o.pose))) { car.hit = true; break; }
@@ -1870,11 +1898,14 @@ function drawSim() {
   for (const car of SIM.cars) {
     const p = car.pose, col = ccol(car.color), sel = car.id === SIM.sel, B = car.cfg.body;
     world(); g.translate(p.x, p.y); g.rotate(p.yaw);
-    if (sel) for (const u of car.cfg.us) {                   // 선택한 차의 초음파 빔
-      g.save(); g.translate(u.x, u.y); g.rotate(u.yaw); g.beginPath(); g.moveTo(0, 0);
+    if (sel) car.cfg.us.forEach((u, ui) => {                 // 선택한 차의 초음파 빔 (서보 모듈은 현재 서보 각도만큼 회전)
+      g.save(); g.translate(u.x, u.y); g.rotate(u.yaw + (p.usAng?.[ui] || 0)); g.beginPath(); g.moveTo(0, 0);
       for (let a = -15; a <= 15; a += 3) g.lineTo(80 * Math.cos(a * D2R), 80 * Math.sin(a * D2R));
       g.closePath(); g.fillStyle = colors.beam; g.fill(); g.restore();
-    }
+    });
+    world(); g.translate(p.x, p.y); g.rotate(p.yaw);
+    car.cfg.us.forEach((u, ui) => { if (u.servo == null || u.servo < 0) return;   // 서보 모듈 센서 방향 표시 (모든 차)
+      g.save(); g.translate(u.x, u.y); g.rotate(u.yaw + (p.usAng?.[ui] || 0)); g.fillStyle = colors.us; g.fillRect(0, -2.4, 1.2, 4.8); g.restore(); });
     const hw = B.W / 2 - 2;
     g.fillStyle = col; g.globalAlpha = 0.22; g.fillRect(-B.rear, -hw, B.L + B.front + B.rear, 2 * hw); g.globalAlpha = 1;
     for (const sh of car.cfg.shapes) { if (sh.type === "mega") continue; g.beginPath(); sh.pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath();

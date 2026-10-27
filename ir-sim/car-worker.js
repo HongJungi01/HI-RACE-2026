@@ -142,7 +142,7 @@ function usMeasure(sx, sy, heading, segs) {
 }
 
 // ---------------- 상태 ----------------
-let irVar = [], floorSeed = 0, servoQ = [];
+let irVar = [], floorSeed = 0, servoQ = [], usServo = [];
 let cfg = null, hexText = "", mega = null, veh = null, meas = {}, others = [], serial = "", trail = [], pinState = {};
 const D2R = Math.PI / 180, clamp = (a, lo, hi) => Math.min(hi, Math.max(lo, a));
 const servoDeg = us => (us - 544) / (2400 - 544) * 180;
@@ -160,11 +160,13 @@ function boot() {
       if (s) { if (m.rise) m.per = (c - m.rise) / 16; m.rise = c; } else if (m.rise) m.hi = (c - m.rise) / 16; m.state = s; m.last = c; }); };
   watch(act.steer, "steer"); watch(act.brake, "brake"); watch(act.pwm, "pwm");
   // 초음파: TRIG 하강 엣지 → 그 순간 자세로 거리 계산 → ECHO 펄스 예약
-  for (const u of cfg.us) { if (u.trig < 0 || u.echo < 0) continue; const [p] = PINMAP[u.trig]; let prev = false;
+  // 서보 + 초음파 모듈: 서보 SIG 펄스 → 각도(90° = 정면, + = 반시계), 속도 제한
+  usServo = cfg.us.map((u, i) => { if (u.servo == null || u.servo < 0) return null; watch(u.servo, "us" + i); return { ang: 90 }; });
+  for (const [ui, u] of cfg.us.entries()) { if (u.trig < 0 || u.echo < 0) continue; const [p] = PINMAP[u.trig]; let prev = false;
     mega.port[p].addListener(() => { const s = mega.getPin(u.trig); if (prev && !s) {
       const c = mega.cpu.cycles, co = Math.cos(veh.yaw), si = Math.sin(veh.yaw);
       const sx = veh.x + u.x * co - u.y * si, sy = veh.y + u.x * si + u.y * co;
-      const d = usMeasure(sx, sy, veh.yaw + u.yaw, others);
+      const d = usMeasure(sx, sy, veh.yaw + u.yaw + (usServo[ui] ? (usServo[ui].ang - 90) * D2R : 0), others);
       const w = d == null ? 38000 : 2 * d / 0.0343;          // 왕복 [µs], 에코 없으면 38 ms
       mega.at(c + 460 * 16, () => mega.setPin(u.echo, true)); mega.at(c + (460 + w) * 16, () => mega.setPin(u.echo, false)); } prev = s; }); }
   const P0 = cfg.params, uni = () => Math.random() * 2 - 1;
@@ -224,6 +226,8 @@ function driveStep(P, duty, rev, brake, dt) {
 
 function vehicleStep(dt, cycle0) {
   const P = cfg.params, act = cfg.act, c = mega.cpu.cycles;
+  usServo.forEach((sv, i) => { if (!sv) return; const m = meas["us" + i];             // 초음파 서보: 약 500 °/s (SG90 급)
+    const tgt = fresh(m, c) && m.hi > 400 ? clamp(servoDeg(m.hi), 0, 180) : sv.ang; sv.ang += clamp(tgt - sv.ang, -500 * dt, 500 * dt); });
   const ms = meas.steer;
   let cmd = fresh(ms, c) && ms.hi > 400 ? servoDeg(ms.hi) : null;
   // 서보: 응답 지연(데드타임) → 속도 제한 → 기구 한계 → 백래시(유격) → 바퀴
@@ -282,7 +286,7 @@ function vehicleStep(dt, cycle0) {
 }
 
 function state() {
-  const out = { type: "state", x: veh.x, y: veh.y, yaw: veh.yaw, v: veh.v, slip: veh.slip || 0, delta: veh.delta, servo: veh.servo, pwm: veh.pwm, dir: veh.dir, t: mega.cpu.cycles / 16e6, serial, trail };
+  const out = { type: "state", x: veh.x, y: veh.y, yaw: veh.yaw, v: veh.v, slip: veh.slip || 0, usAng: usServo.map(s => s ? (s.ang - 90) * D2R : 0), delta: veh.delta, servo: veh.servo, pwm: veh.pwm, dir: veh.dir, t: mega.cpu.cycles / 16e6, serial, trail };
   serial = ""; trail = [];
   return out;
 }
