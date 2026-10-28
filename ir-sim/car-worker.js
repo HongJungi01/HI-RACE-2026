@@ -58,6 +58,23 @@ class Mega {
     this.usart = new A.AVRUSART(this.cpu, C.usart, 16e6);
     this.adc = new A.AVRADC(this.cpu, C.adc);
     this.events = [];
+    // 타이머는 다음 비교 일치·오버플로 시점에만 깨어나므로(avr8js.js 패치), 타이머 설정·OCR을 쓰기 전에 지금까지의 틱을 먼저 세고
+    // 쓴 뒤에 다음 깨어날 시점을 다시 잡음
+    const cpu = this.cpu;
+    for (const t of this.timers) {
+      const c = t.config;
+      for (const a of [c.TCCRA, c.OCRA, c.OCRB, c.OCRC, c.ICR]) {
+        const h = a > 0 && cpu.writeHooks[a]; if (!h) continue;
+        cpu.writeHooks[a] = (v, o, addr, m) => {
+          if (!t.updateDivider && t.divider) t.count(false);
+          const r = h(v, o, addr, m);
+          if (!t.updateDivider && t.divider) cpu.updateClockEvent(t.count, 0);
+          return r;
+        };
+      }
+      const hb = cpu.writeHooks[c.TCCRB];                        // 분주 변경 전에 이전 분주로 센 틱 반영
+      cpu.writeHooks[c.TCCRB] = (v, o, addr, m) => { if (!t.updateDivider && t.divider) t.count(false); return hb(v, o, addr, m); };
+    }
   }
   setPin(n, hi) { const [p, b] = PINMAP[n]; this.port[p].setPin(b, hi); }
   getPin(n) { const [p, b] = PINMAP[n]; return this.port[p].pinState(b) === A.PinState.High; }
@@ -291,6 +308,7 @@ function vehicleStep(dt, cycle0) {
 }
 
 // 화면 표시용 초음파 거리: 코드가 0.3 s 안에 쟀으면 그 값(src 1), 아니면 지금 자세로 한 번 재 본 값(src 0). null = 에코 없음
+let probe = true;
 function usView() {
   if (!cfg || !veh) return [];
   const now = mega ? mega.cpu.cycles : 0, co = Math.cos(veh.yaw), si = Math.sin(veh.yaw);
@@ -298,6 +316,7 @@ function usView() {
     const L = usLast[ui];
     if (L && now - L.c < 0.3 * 16e6) return [L.d == null ? null : +L.d.toFixed(1), 1];
     if (u.trig < 0 && u.echo < 0) return [null, 0];
+    if (!probe) return null;                                  // 선택 안 된 차는 화면용 측정 생략 (CPU 절약)
     const sx = veh.x + u.x * co - u.y * si, sy = veh.y + u.x * si + u.y * co;
     const d = usMeasure(sx, sy, veh.yaw + u.yaw + (usServo[ui] ? (usServo[ui].ang - 90) * D2R : 0), others);
     return [d == null ? null : +d.toFixed(1), 0];
@@ -317,7 +336,7 @@ self.onmessage = ({ data: m }) => {
     if (m.type === "init") { cfg = m.cfg; hexText = m.hex; boot(); self.postMessage({ type: "ready" }); self.postMessage(state()); return; }
     if (m.type === "reset") { if (m.cfg) cfg = m.cfg; boot(); self.postMessage(state()); return; }
     if (m.type === "step") {
-      others = m.others || [];
+      others = m.others || []; probe = m.probe !== false;
       if (m.pose) { veh.x = m.pose.x; veh.y = m.pose.y; veh.yaw = m.pose.yaw; veh.v = 0; veh.i = 0; veh.vy = 0; veh.r = 0; }
       for (let i = 0; i < m.n; i++) {
         const c0 = mega.cpu.cycles;

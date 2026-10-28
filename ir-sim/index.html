@@ -634,6 +634,7 @@ div.CodeMirror-selected, .CodeMirror-focused div.CodeMirror-selected { backgroun
       <button id="allPause" type="button">⏸ 모두 일시정지</button>
       <button id="allStop" type="button">⏹ 모두 정지</button>
       <label class="tb-field" for="speedSel">속도 <select id="speedSel"><option value="0.25">×0.25</option><option value="0.5">×0.5</option><option value="1" selected>×1</option><option value="2">×2</option><option value="4">×4</option></select></label>
+      <span class="status" id="rtfOut"></span>
       <span class="grow"></span>
       <button id="viewFit" type="button">맵 전체</button>
     </div>
@@ -1830,6 +1831,7 @@ async function runCar(car) {
   car.cfg = carConfig(car); car.trail = []; car.serial = []; car.serialTail = ""; car.serialUnread = 0;
   car.worker.postMessage({ type: "init", hex: car.hex, cfg: { ...car.cfg, start: car.start } });
 }
+const TRAIL_MAX = 3000;
 function onCarMsg(car, d) {
   if (d.type === "ready") { if (car.status === "starting") car.status = "running"; car.busy = false; renderSimUI(); return; }
   if (d.type === "error") { car.status = "error"; car.err = "에뮬레이션 중단: " + d.message; car.busy = false; renderSimUI(); return; }
@@ -1842,7 +1844,7 @@ function onCarMsg(car, d) {
   car.hit = false;
   for (const o of SIM.cars) if (o !== car && o.status !== "hidden" && polysOverlap(footWorld(car, car.pose), footWorld(o, o.pose))) { car.hit = true; break; }
   if (car.hit && prev) { car.pose = { ...car.pose, x: prev.x, y: prev.y, yaw: prev.yaw, v: 0 }; car.forcePose = { x: prev.x, y: prev.y, yaw: prev.yaw }; }
-  else for (const p of d.trail) { car.trail.push(p); if (car.trail.length > 20000) car.trail.shift(); }
+  else { car.trail.push(...d.trail); if (car.trail.length > TRAIL_MAX) car.trail.splice(0, car.trail.length - TRAIL_MAX); }   // 궤적은 최근 30 m만 (그리기 부담)
   if (d.serial) {
     const parts = (car.serialTail + d.serial).split("\n"); car.serialTail = parts.pop();
     car.serial.push(...parts.map(l => l.replace(/\r$/, ""))); if (car.serial.length > 500) car.serial.splice(0, car.serial.length - 500);
@@ -1875,21 +1877,38 @@ function polysOverlap(A, B) {
 }
 const toCarFrame = (p, x, y) => { const dx = x - p.x, dy = y - p.y, c = Math.cos(p.yaw), s = Math.sin(p.yaw); return [c * dx + s * dy, -s * dx + c * dy]; };
 
-// ---- 메인 루프: 실행 중인 차마다 경과 시간만큼 워커에 스텝 요청 ----
+// ---- 메인 루프: 모든 차가 같은 시뮬레이션 시간으로 진행 (lockstep) ----
+// 차 1대 = Mega 에뮬레이션에 CPU 코어 하나의 상당 부분을 씀. CPU가 모자라면 가장 느린 워커를 기다렸다가
+// 모든 차에 같은 스텝을 주므로, 차마다 따로 느려지지 않고 전체가 같이 느려짐 (차 사이 공정성 유지)
 let simLast = performance.now(), simAcc = 0;
+const rtfWin = { sim: 0, wall: 0 };
 function simFrame(now) {
   const dt = Math.min(50, now - simLast); simLast = now;
   if (!$("pageSim").hidden) {
-    simAcc += dt * SIM.speed;
-    const n = Math.floor(simAcc); simAcc -= n;
-    if (n > 0) for (const car of SIM.cars) {
-      if (car.status !== "running" || car.busy || !car.worker) continue;
-      const others = [];
-      for (const o of SIM.cars) if (o !== car) { const F = footWorld(o, o.pose); for (let i = 0; i < 4; i++) others.push([...F[i], ...F[(i + 1) % 4]]); }
-      car.busy = true;
-      car.worker.postMessage({ type: "step", n: Math.min(n, 100), others, pose: car.forcePose || null });
-      car.forcePose = null;
+    const run = SIM.cars.filter(c => c.status === "running" && c.worker);
+    const waiting = run.some(c => c.busy && now - (c.busySince || 0) < 2000);   // 2 s 넘게 응답 없는 워커는 기다리지 않음
+    simAcc = Math.min(simAcc + dt * SIM.speed, 100);
+    if (run.length && !waiting) {
+      const n = Math.floor(simAcc);
+      if (n > 0) {
+        simAcc -= n; rtfWin.sim += n;
+        for (const car of run) {
+          const others = [];
+          for (const o of SIM.cars) if (o !== car) { const F = footWorld(o, o.pose); for (let i = 0; i < 4; i++) others.push([...F[i], ...F[(i + 1) % 4]]); }
+          car.busy = true; car.busySince = now;
+          car.worker.postMessage({ type: "step", n, others, pose: car.forcePose || null, probe: car.id === SIM.sel });
+          car.forcePose = null;
+        }
+      }
     }
+    if (run.length) rtfWin.wall += dt;
+    if (rtfWin.wall >= 1000) {                                 // 실시간 대비 속도 표시 (1초마다)
+      const r = rtfWin.sim / rtfWin.wall, el = $("rtfOut");
+      el.textContent = `실시간 대비 ×${r.toFixed(2)}`; el.className = "status" + (r < SIM.speed * 0.9 ? " warn" : "");
+      el.title = r < SIM.speed * 0.9 ? "CPU가 모자라 모든 차가 같이 느리게 진행 중 (차마다 Mega 에뮬레이션에 코어 하나의 상당 부분 사용)" : "";
+      rtfWin.sim = rtfWin.wall = 0;
+    }
+    if (!run.length) $("rtfOut").textContent = "";
     drawSim(); tickSimUI();
   }
   requestAnimationFrame(simFrame);

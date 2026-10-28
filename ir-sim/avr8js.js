@@ -1988,7 +1988,8 @@ var AVRTimer = class {
         return;
       }
       if (reschedule && divider) {
-        cpu2.addClockEvent(this.count, this.lastCycle + divider - cpu2.cycles);
+        // [IR sim 패치] 매 틱 대신 다음 비교 일치·오버플로·방향 전환 시점에만 깨어남 (결과 동일, 에뮬레이션 부하 감소)
+        cpu2.addClockEvent(this.count, this.lastCycle + divider * this.ticksToNext() - cpu2.cycles);
       }
     };
     this.externalClockCallback = (value) => {
@@ -2179,6 +2180,23 @@ var AVRTimer = class {
         this.updateCompC(this.compC ? PinOverrideMode.Enable : PinOverrideMode.None);
       }
     }
+  }
+  // [IR sim 패치] 지금 카운터 값에서 다음 "일"이 생길 때까지 남은 틱 수 (비교 일치, TOP/BOTTOM, 오버플로)
+  ticksToNext() {
+    if (this.tcntUpdated || this.updateDivider) return 1;
+    const { timerMode, TOP, tcnt: v } = this;
+    const ocrs = this.hasOCRC ? [this.ocrA, this.ocrB, this.ocrC] : [this.ocrA, this.ocrB];
+    let k;
+    if (timerMode === PWMPhaseCorrect || timerMode === PWMPhaseFrequencyCorrect) {
+      if (!TOP) return 1;
+      if (this.countingUp) { k = TOP - v; for (const o of ocrs) if (o > v && o - v < k) k = o - v; }
+      else { k = v; for (const o of ocrs) if (o < v && v - o < k) k = v - o; }
+    } else {
+      // 오버플로는 TOP까지 센 뒤 1틱 더 세서 처리 (한 번에 TOP+1틱을 세면 이전 값 = 새 값이 되어 오버플로·비교 일치를 놓침)
+      k = TOP - v;
+      for (const o of ocrs) if (o > v && o <= TOP && o - v < k) k = o - v;
+    }
+    return k > 1 ? k : 1;
   }
   phasePwmCount(value, delta) {
     const { ocrA, ocrB, ocrC, hasOCRC, TOP, MAX, tcntUpdated } = this;
