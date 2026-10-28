@@ -560,7 +560,12 @@ div.CodeMirror-selected, .CodeMirror-focused div.CodeMirror-selected { backgroun
 .logview .toolbar { flex-wrap: nowrap; }
 @media (max-width: 760px) { .logview .toolbar { flex-wrap: wrap; } }
 #logSel { max-width: min(460px, 40vw); }
-#logSeek { flex: 1; min-width: 120px; accent-color: var(--accent); }
+.seek-wrap { flex: 1; min-width: 120px; position: relative; display: flex; align-items: center; }
+#logSeek { width: 100%; margin: 0; accent-color: var(--accent); }
+.seek-ticks { position: absolute; left: 8px; right: 8px; bottom: -5px; height: 6px; pointer-events: none; }   /* 충돌 시각 (빨간 눈금) */
+.seek-ticks i { position: absolute; top: 0; width: 2px; height: 6px; margin-left: -1px; background: var(--err); border-radius: 1px; }
+.log-legend button .h { font-size: 11px; font-weight: 600; color: var(--err); }
+.log-legend button.on .h { color: #fff; }
 #logTime { min-width: 104px; text-align: center; }
 canvas#logCv { display: block; width: 100%; height: max(360px, calc(100dvh - 150px)); background: var(--field); border-radius: 3px; touch-action: none; }
 .log-legend { position: absolute; top: 8px; left: 8px; display: flex; flex-direction: column; gap: 4px; max-width: 60%; }
@@ -745,7 +750,7 @@ canvas#logCv { display: block; width: 100%; height: max(360px, calc(100dvh - 150
   <div class="toolbar">
     <label class="tb-field" for="logSel">기록 <select id="logSel"></select></label>
     <button id="logPlay" type="button" disabled>▶ 재생</button>
-    <input id="logSeek" type="range" min="0" max="1000" step="1" value="0" disabled aria-label="재생 위치">
+    <span class="seek-wrap"><input id="logSeek" type="range" min="0" max="1000" step="1" value="0" disabled aria-label="재생 위치"><span class="seek-ticks" id="logTicks" aria-hidden="true"></span></span>
     <span class="status" id="logTime">0.0 / 0.0 s</span>
     <label class="tb-field" for="logSpeed">속도 <select id="logSpeed"><option value="0.25">×0.25</option><option value="0.5">×0.5</option><option value="1" selected>×1</option><option value="2">×2</option><option value="4">×4</option><option value="8">×8</option></select></label>
     <label class="tb-field" for="logNames"><input id="logNames" type="checkbox" checked>차 이름</label>
@@ -1812,7 +1817,7 @@ function pathsFor(m) {
 }
 function setMap(id) {
   SIM.cars.forEach(stopCar);
-  SIM.mapId = id; const m = curMap();
+  SIM.mapId = id; const m = curMap(); HITS.marks = [];
   SIM.cars.forEach((c, i) => { c.start = startSlot(i); c.pose = { ...c.start }; c.trail = []; });
   for (const c of SIM.cars) if (c.worker) c.worker.postMessage({ type: "map", map: m });
   simSave(); fitSim(); renderSimUI();
@@ -1892,7 +1897,7 @@ function onCarMsg(car, d) {
   car.pose = { x: d.x, y: d.y, yaw: d.yaw, v: d.v, delta: d.delta, servo: d.servo, pwm: d.pwm, t: d.t, slip: d.slip, usAng: d.usAng, usD: d.usD };
   // 충돌: 다른 차 외곽과 겹치면 이번 이동을 되돌리고 멈춤
   car.hit = false;
-  for (const o of SIM.cars) if (o !== car && o.status !== "hidden" && polysOverlap(footWorld(car, car.pose), footWorld(o, o.pose))) { car.hit = true; break; }
+  for (const o of SIM.cars) if (o !== car && o.status !== "hidden" && polysOverlap(footWorld(car, car.pose), footWorld(o, o.pose))) { car.hit = true; noteHit(car, o); break; }
   if (car.hit && prev) { car.pose = { ...car.pose, x: prev.x, y: prev.y, yaw: prev.yaw, v: 0 }; car.forcePose = { x: prev.x, y: prev.y, yaw: prev.yaw }; }
   else { car.trail.push(...d.trail); if (car.trail.length > TRAIL_MAX) car.trail.splice(0, car.trail.length - TRAIL_MAX); }   // 궤적은 최근 30 m만 (그리기 부담)
   if (d.serial) {
@@ -1947,14 +1952,28 @@ function dummyStep(car, ms) {
   D.v = v; D.t += ms / 1000;
   car.pose = { x, y, yaw, v, delta, servo: 110 - delta / D2R, pwm: 0, t: D.t };
   car.hit = false;                                           // 충돌하면 이번 이동을 되돌리고 멈춤 (Mega 차와 같은 규칙)
-  for (const o of SIM.cars) if (o !== car && polysOverlap(footWorld(car, car.pose), footWorld(o, o.pose))) { car.hit = true; break; }
+  for (const o of SIM.cars) if (o !== car && polysOverlap(footWorld(car, car.pose), footWorld(o, o.pose))) { car.hit = true; noteHit(car, o); break; }
   if (car.hit) { car.pose = { ...car.pose, x: prev.x, y: prev.y, yaw: prev.yaw, v: 0 }; D.v = 0; }
   else { const lp = car.trail.at(-1); if (!lp || Math.hypot(x - lp[0], y - lp[1]) > 1) { car.trail.push([x, y]); if (car.trail.length > TRAIL_MAX) car.trail.splice(0, car.trail.length - TRAIL_MAX); } }
+}
+// ---- 충돌 표시: 닿기 시작한 순간을 한 번으로 셈 (계속 밀고 있는 동안은 1초 안에 다시 닿아도 같은 충돌) ----
+const HIT_GAP = 1000, HIT_FLASH = 1500;
+const HITS = { marks: [], pair: {} };                        // marks: 보드에 남기는 충돌 위치 (최근 50개)
+const footMid = c => { const F = footWorld(c, c.pose); return [(F[0][0] + F[2][0]) / 2, (F[0][1] + F[2][1]) / 2]; };
+function noteHit(car, o) {                                   // 부딪친 두 차 모두 셈 (상대가 서 있어서 스스로 감지 못해도)
+  const now = performance.now(), key = [car.id, o.id].sort().join("-"), isNew = !(HITS.pair[key] && now - HITS.pair[key] < HIT_GAP);
+  HITS.pair[key] = now;
+  for (const c of [car, o]) { if (isNew && !(c.lastHit && now - c.lastHit < HIT_GAP)) c.hitCount = (c.hitCount || 0) + 1; c.lastHit = now; c.hitFlash = now; }
+  if (!isNew) return;
+  const [ax, ay] = footMid(car), [bx, by] = footMid(o), m = { x: (ax + bx) / 2, y: (ay + by) / 2 };
+  HITS.marks.push(m); if (HITS.marks.length > 50) HITS.marks.shift();
+  recHit(car, o, m);
+  renderCarList();
 }
 function pauseCar(car) { if (car.status === "running") { car.status = "paused"; renderSimUI(); } }
 function stopCar(car) {
   if (car.status === "stopped") return;
-  car.status = "stopped"; car.busy = false; car.hit = false; car.forcePose = null; car.dum = null;
+  car.status = "stopped"; car.busy = false; car.hit = false; car.forcePose = null; car.dum = null; car.hitCount = 0; car.lastHit = 0;
   car.pose = { ...car.start, v: 0, delta: 0, servo: 110, pwm: 0, t: 0 }; car.trail = [];
   if (car.worker) { car.worker.terminate(); car.worker = null; }       // 다음 실행 때 새로 시작 (MCU 리셋)
   renderSimUI();
@@ -2027,9 +2046,10 @@ function fitSim() {
   SIM.follow = null; renderCarList();
 }
 const ccol = k => colors[k] || getComputedStyle(document.documentElement).getPropertyValue("--" + k).trim();
-function drawSim() { simResize(); drawBoard({ cv: scv, g: sctx, cam: scam }, curMap(), SIM.cars, SIM.follow, true, $("simNames").checked); }
+function drawSim() { simResize(); const now = performance.now(); for (const c of SIM.cars) c.flash = now - (c.hitFlash || -1e9) < HIT_FLASH;
+  drawBoard({ cv: scv, g: sctx, cam: scam }, curMap(), SIM.cars, SIM.follow, true, $("simNames").checked, HITS.marks); }
 // 맵 + 차량 그리기 (탭 2 보드와 탭 3 로그 시청이 같이 씀). live = 탭 2 (선택·초음파·회전 핸들 표시)
-function drawBoard(V, m, cars, follow, live, names = true) {
+function drawBoard(V, m, cars, follow, live, names = true, marks = []) {
   const scv = V.cv, scam = V.cam, g = V.g, W = scv.width, H = scv.height, k = dpr(); if (!W) return;
   const sToPx = (x, y) => [W / 2 + (x - scam.x) * scam.s, H / 2 - (y - scam.y) * scam.s];
   g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = m ? m.floor : colors.field; g.fillRect(0, 0, W, H);   // 바닥색으로 화면 전체를 채움 (확대해도 맵 바깥이 잘려 보이지 않게)
@@ -2048,6 +2068,9 @@ function drawBoard(V, m, cars, follow, live, names = true) {
     world(); g.strokeStyle = ccol(car.color); g.globalAlpha = 0.55; g.lineWidth = 1.2 * k / scam.s; g.beginPath();
     for (let i = 0; i < N; i++) { const [x, y] = car.trail[i]; i ? g.lineTo(x, y) : g.moveTo(x, y); } g.stroke(); g.globalAlpha = 1;
   }
+  // 충돌 위치 (빨간 X + 원)
+  if (marks.length) { world(); g.strokeStyle = colors.err; g.lineWidth = 2 * k / scam.s; const r = Math.max(5, 7 * k / scam.s);
+    for (const mk of marks) { g.beginPath(); g.arc(mk.x, mk.y, r, 0, 2 * Math.PI); g.moveTo(mk.x - r * 0.6, mk.y - r * 0.6); g.lineTo(mk.x + r * 0.6, mk.y + r * 0.6); g.moveTo(mk.x - r * 0.6, mk.y + r * 0.6); g.lineTo(mk.x + r * 0.6, mk.y - r * 0.6); g.stroke(); } }
   // 차량
   const usLabels = [];
   for (const car of cars) {
@@ -2076,12 +2099,17 @@ function drawBoard(V, m, cars, follow, live, names = true) {
       g.fillStyle = sh.type.startsWith("ir") ? colors.pcb11 : colors.part; g.globalAlpha = 0.75; g.fill(); g.globalAlpha = 1; }
     g.fillStyle = colors.car; for (const [x, y] of [[0, B.W / 2], [0, -B.W / 2], [B.L, B.W / 2], [B.L, -B.W / 2]]) {
       g.save(); g.translate(x, y); if (x > 0) g.rotate(p.delta || 0); g.fillRect(-3.25, -1.3, 6.5, 2.6); g.restore(); }
-    g.lineWidth = (sel ? 3 : 1.6) * k / scam.s; g.strokeStyle = car.hit ? colors.err : col;
+    g.lineWidth = (sel || car.flash ? 3 : 1.6) * k / scam.s; g.strokeStyle = car.hit || car.flash ? colors.err : col;
     g.strokeRect(-B.rear, -hw, B.L + B.front + B.rear, 2 * hw);
     g.fillStyle = "#ffffff"; for (const s of car.cfg.irAll) { g.beginPath(); g.arc(s.x, s.y, Math.max(0.25, 1.4 * k / scam.s), 0, 2 * Math.PI); g.fill(); }
     // 이름표 (화면 좌표)
     g.setTransform(1, 0, 0, 1, 0, 0);
     const [lx, ly] = sToPx(p.x, p.y);
+    if (car.flash) {                                           // 충돌 직후 1.5초: 차 아래에 '충돌' 표시 (이름을 꺼도 보임)
+      g.font = `700 ${12 * k}px "IBM Plex Sans KR", sans-serif`; g.textAlign = "center"; g.textBaseline = "top";
+      const t = "충돌", w = g.measureText(t).width + 12 * k, yy = ly + (B.W / 2 + 4) * scam.s + 2 * k;
+      g.fillStyle = colors.err; g.fillRect(lx - w / 2, yy, w, 18 * k); g.fillStyle = "#fff"; g.fillText(t, lx, yy + 2 * k);
+    }
     if (names) {                                               // 상단 '차 이름' 체크박스로 켜고 끔
       g.font = `600 ${11.5 * k}px "IBM Plex Sans KR", sans-serif`; g.textAlign = "center"; g.textBaseline = "bottom";
       const tw = g.measureText(car.name).width + 10 * k; g.fillStyle = col; g.globalAlpha = 0.9;
@@ -2184,7 +2212,7 @@ function renderCarList() {
   el.innerHTML = SIM.cars.map(c => { const [st, cls] = STATUS[c.status], [cs, ccls] = codeState(c), busy = c.status === "compiling" || c.status === "starting";
     return `<div class="carrow${c.id === SIM.sel ? " sel" : ""}" data-car="${c.id}" role="option" aria-selected="${c.id === SIM.sel}" style="--cc:var(--${c.color})">
       <span class="dot"></span><span class="nm">${esc(c.name)}</span><span class="status ${cls}">${st}</span>
-      <span class="meta"><span class="${ccls}">${cs}</span>${c.serial.length ? `<span class="ser">Serial ${c.serial.length}줄</span>` : ""}</span>
+      <span class="meta"><span class="${ccls}">${cs}</span>${c.serial.length ? `<span class="ser">Serial ${c.serial.length}줄</span>` : ""}${c.hitCount ? `<span class="bad">충돌 ${c.hitCount}회</span>` : ""}</span>
       <span class="ctl">
         ${c.status === "running" ? `<button type="button" data-act="pause" title="${esc(c.name)} 일시정지">⏸ 일시정지</button>` : `<button type="button" data-act="run" title="${esc(c.name)} ${c.status === "paused" ? "계속" : "실행"}"${busy ? " disabled" : ""}>▶ ${c.status === "paused" ? "계속" : "실행"}</button>`}
         <button type="button" data-act="stop" title="정지 · 출발 위치로"${c.status === "stopped" ? " disabled" : ""}>⏹</button>
@@ -2352,7 +2380,7 @@ $("serialClear").onclick = () => { const car = selCar(); if (car) { car.serial =
 // ---- 툴바 / 차량 불러오기 ----
 $("mapSel").onchange = e => setMap(e.target.value);
 $("speedSel").onchange = e => { SIM.speed = +e.target.value; simSave(); };
-$("allRun").onclick = () => { recStart(); SIM.cars.forEach(runCar); };
+$("allRun").onclick = () => { if (SIM.cars.every(c => c.status === "stopped" || c.status === "error")) HITS.marks = []; recStart(); SIM.cars.forEach(runCar); };
 $("allPause").onclick = () => SIM.cars.forEach(pauseCar);
 $("allStop").onclick = () => { recFinish(); SIM.cars.forEach(stopCar); };
 $("viewFit").onclick = fitSim;
@@ -2568,7 +2596,7 @@ $("garageFilter").oninput = renderGarage;
 // ======================================================================
 // 주행 로그: 탭 2에서 녹화 (맵 + 차마다 위치·방향·앞바퀴 조향만) → 백엔드에 올림 → 탭 3에서 영상처럼 재생
 // 시각 = 시뮬레이션 시간 (lockstep이라 모든 차가 같은 시각). REC_DT마다 한 번, 스텝 직전 위치를 찍음
-// 저장 형식 (data, JSON 문자열): { v, looks[차], T[ms 차분], cars[{x,y,a,d}] }
+// 저장 형식 (data, JSON 문자열): { v, looks[차], T[ms 차분], cars[{x,y,a,d,h}] (h = 샘플마다 닿아 있으면 "1", 충돌 없으면 생략), E[[t ms, 차 i, 상대 j(−1 = 기록 밖 차), x mm, y mm]] (충돌 사건, 없으면 생략 가능) }
 //   x·y = mm 정수, a = 누적 yaw(감기 풀린 값) mrad 정수, d = 앞바퀴 조향 mrad 정수, 모두 앞 값과의 차분
 // ======================================================================
 const REC_DT = 50, REC_MAX = 10 * 60 * 1000, LOG_MINE_MAX = 20;
@@ -2587,15 +2615,21 @@ function recShow() {
 function recStart() {
   if (!$("recTog").checked || REC.cur || !SIM.cars.length) return;
   const cars = [...SIM.cars];
-  REC.cur = { cars, looks: cars.map(carLook), map: SIM.mapId, t: 0, next: 0, wall0: Date.now(), T: [],
-    P: cars.map(() => ({ x: [], y: [], a: [], d: [], ua: null, ra: 0 })) };
+  REC.cur = { cars, looks: cars.map(carLook), map: SIM.mapId, t: 0, next: 0, wall0: Date.now(), T: [], E: [],
+    P: cars.map(() => ({ x: [], y: [], a: [], d: [], h: "", ua: null, ra: 0 })) };
   recShow();
 }
 function recSample(R) {
   R.T.push(Math.round(R.t));
   R.cars.forEach((c, i) => { const p = c.pose, Q = R.P[i];
     Q.ua = Q.ua == null ? p.yaw : Q.ua + wrapPi(p.yaw - Q.ra); Q.ra = p.yaw;   // yaw 감기 풀기 (재생 때 보간이 튀지 않게)
-    Q.x.push(Math.round(p.x * 10)); Q.y.push(Math.round(p.y * 10)); Q.a.push(Math.round(Q.ua * 1000)); Q.d.push(Math.round((p.delta || 0) * 1000)); });
+    Q.x.push(Math.round(p.x * 10)); Q.y.push(Math.round(p.y * 10)); Q.a.push(Math.round(Q.ua * 1000)); Q.d.push(Math.round((p.delta || 0) * 1000));
+    Q.h += performance.now() - (c.lastHit || -1e9) < 150 ? "1" : "0"; });          // 닿아 있는지 (계속 밀고 있는 동안도 표시)
+}
+function recHit(car, o, m) {                                     // 충돌 사건 (noteHit에서 두 차당 한 번)
+  const R = REC.cur; if (!R) return;
+  const i = R.cars.indexOf(car), j = R.cars.indexOf(o); if (i < 0 && j < 0) return;
+  R.E.push([Math.round(R.t), i >= 0 ? i : j, i >= 0 ? j : -1, Math.round(m.x * 10), Math.round(m.y * 10)]);
 }
 function recStep(n) {
   const R = REC.cur; if (!R) return;
@@ -2616,8 +2650,8 @@ async function recFinish(why) {
   recShow();
   if (R.T.length < 2) { $("recOut").hidden = false; $("recOut").className = "status"; $("recOut").textContent = "기록된 주행이 없습니다"; return; }
   const m = MAPS.find(x => x.id === R.map);
-  const meta = { v: 1, map: R.map, mapTitle: m ? m.title : R.map, dur: R.T.at(-1), n: R.T.length, cars: R.cars.map(c => ({ name: c.name, color: c.color, ...(c.kind === "dummy" ? { kind: "dummy" } : {}) })) };
-  const data = JSON.stringify({ v: 1, looks: R.looks, T: deltas(R.T), cars: R.P.map(Q => ({ x: deltas(Q.x), y: deltas(Q.y), a: deltas(Q.a), d: deltas(Q.d) })) });
+  const meta = { v: 1, map: R.map, mapTitle: m ? m.title : R.map, dur: R.T.at(-1), n: R.T.length, hits: R.E.length, cars: R.cars.map(c => ({ name: c.name, color: c.color, ...(c.kind === "dummy" ? { kind: "dummy" } : {}) })) };
+  const data = JSON.stringify({ v: 1, looks: R.looks, T: deltas(R.T), cars: R.P.map(Q => ({ x: deltas(Q.x), y: deltas(Q.y), a: deltas(Q.a), d: deltas(Q.d), ...(Q.h.includes("1") ? { h: Q.h } : {}) })), E: R.E });
   const entry = { id: "local" + Date.now(), local: true, uid: LOGS.uid, who: "나", meta, createdAt: Date.now(), data };
   LOGS.local.unshift(entry); renderLogSel();
   const say = t => { $("recOut").hidden = false; $("recOut").className = "status"; $("recOut").textContent = t; };
@@ -2642,7 +2676,7 @@ function initLogs(be) {
 }
 const logAll = () => [...LOGS.local, ...LOGS.entries].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 const logLabel = e => { const m = e.meta || {}, cs = (m.cars || []).map(c => c.name).join(", ");
-  return `${fmtTime(e.createdAt || 0)} · ${(m.mapTitle || m.map || "?").replace(/\s*\(.*\)$/, "")} · ${((m.dur || 0) / 1000).toFixed(1)} s · ${cs} · ${e.local ? "이 창만" : (LOGS.uid && e.uid === LOGS.uid ? "나" : e.who)}`; };
+  return `${fmtTime(e.createdAt || 0)} · ${(m.mapTitle || m.map || "?").replace(/\s*\(.*\)$/, "")} · ${((m.dur || 0) / 1000).toFixed(1)} s${m.hits ? ` · 충돌 ${m.hits}` : ""} · ${cs} · ${e.local ? "이 창만" : (LOGS.uid && e.uid === LOGS.uid ? "나" : e.who)}`; };
 function renderLogSel() {
   const sel = $("logSel"), all = logAll(), cur = LOGP.entry?.id;
   sel.innerHTML = all.length ? all.map(e => `<option value="${esc(e.id)}">${esc(logLabel(e))}</option>`).join("") : `<option value="">기록 없음</option>`;
@@ -2670,10 +2704,11 @@ function logFit() {
 function logShown() { logResize(); if (LOGP.want) { const e = logAll().find(x => x.id === LOGP.want); LOGP.want = null; if (e) { openLog(e); return; } } if (!LOGP.entry) { const a = logAll()[0]; if (a) openLog(a); } else if (!lcv._fitted) { lcv._fitted = true; logFit(); } }
 function decodeLog(str) {
   const j = JSON.parse(str), cum = a => { const o = new Float64Array(a.length); let s = 0; for (let i = 0; i < a.length; i++) { s += a[i]; o[i] = s; } return o; };
-  return { looks: j.looks, T: cum(j.T), cars: j.cars.map(c => ({ x: cum(c.x), y: cum(c.y), a: cum(c.a), d: cum(c.d) })) };
+  return { looks: j.looks, T: cum(j.T), cars: j.cars.map(c => ({ x: cum(c.x), y: cum(c.y), a: cum(c.a), d: cum(c.d), h: c.h || "" })),
+    E: (j.E || []).map(([t, i, k, x, y]) => ({ t, i, j: k, x: x / 10, y: y / 10 })).sort((a, b) => a.t - b.t) };
 }
 function closeLog(msg) {
-  LOGP.entry = null; LOGP.cars = []; LOGP.T = null; LOGP.playing = false;
+  LOGP.entry = null; LOGP.cars = []; LOGP.T = null; LOGP.playing = false; LOGP.E = []; LOGP.marks = []; $("logTicks").innerHTML = "";
   $("logPlay").disabled = $("logSeek").disabled = true; $("logDel").hidden = true; $("logLegend").innerHTML = "";
   $("logMsg").hidden = !msg; if (msg) $("logMsg").textContent = msg; logUI();
 }
@@ -2689,7 +2724,8 @@ async function openLog(e) {
   let D; try { D = decodeLog(str); } catch (er) { $("logMsg").textContent = "기록 형식을 읽지 못했습니다."; return; }
   const meta = e.meta || {};
   LOGP.map = MAPS.find(m => m.id === meta.map) || null;
-  LOGP.T = D.T; LOGP.dur = D.T[D.T.length - 1] || 0; LOGP.t = 0;
+  LOGP.T = D.T; LOGP.dur = D.T[D.T.length - 1] || 0; LOGP.t = 0; LOGP.E = D.E;
+  $("logTicks").innerHTML = LOGP.dur ? D.E.map(ev => `<i style="left:${(ev.t / LOGP.dur * 100).toFixed(2)}%" title="충돌 ${fmtS(ev.t)} s"></i>`).join("") : "";
   LOGP.cars = D.cars.map((c, i) => { const look = D.looks[i], B = look.body, hw = B.W / 2 + 1.3, mc = meta.cars?.[i] || {};
     const trail = Array.from(c.x, (x, k) => [x / 10, c.y[k] / 10]);
     return { id: "r" + i, name: mc.name || `${i + 1}번 차`, color: mc.color || CAR_COLORS[i % 4], src: c, trail, trailN: 1, hit: false, status: "replay",
@@ -2707,6 +2743,12 @@ function logPose() {                                             // t 시각 위
   LOGP.ij = [i, j];
   for (const c of LOGP.cars) { const s = c.src, L = (arr, k) => arr[i] + (arr[j] - arr[i]) * f * k;
     c.pose = { x: L(s.x, 1) / 10, y: L(s.y, 1) / 10, yaw: L(s.a, 1) / 1000, delta: L(s.d, 1) / 1000 }; c.trailN = i + 1; }
+  // 충돌: 지금 시각까지의 위치 표시, 차별 횟수, 직후 1.5초 빨간 표시
+  const E = LOGP.E || []; LOGP.marks = [];
+  LOGP.cars.forEach(c => { c.hitN = 0; c.flash = false;            // 탭 2와 같게: 마지막으로 닿은 뒤 1.5초 동안 빨갛게
+    if (c.src.h) for (let k = i; k >= 0 && t - T[k] < HIT_FLASH; k--) if (c.src.h[k] === "1") { c.flash = true; break; } });
+  for (const ev of E) { if (ev.t > t) break; LOGP.marks.push(ev);
+    for (const k of [ev.i, ev.j]) { const c = LOGP.cars[k]; if (!c) continue; c.hitN++; if (t - ev.t < HIT_FLASH) c.flash = true; } }
 }
 const fmtS = ms => (ms / 1000).toFixed(1);
 function logUI() {
@@ -2717,14 +2759,15 @@ function logUI() {
 function renderLegend() {
   const box = $("logLegend"); box.innerHTML = "";
   for (const c of LOGP.cars) { const b = document.createElement("button"); b.type = "button"; b.style.setProperty("--cc", `var(--${c.color})`);
-    b.className = LOGP.follow === c.id ? "on" : ""; b.title = "클릭 = 이 차 따라가기"; b.innerHTML = `<b></b><span class="v"></span>`; b.querySelector("b").textContent = c.name;
+    b.className = LOGP.follow === c.id ? "on" : ""; b.title = "클릭 = 이 차 따라가기"; b.innerHTML = `<b></b><span class="v"></span><span class="h"></span>`; b.querySelector("b").textContent = c.name;
     b.onclick = () => { LOGP.follow = LOGP.follow === c.id ? null : c.id; if (LOGP.follow) LOGP.cam.s = Math.max(LOGP.cam.s, 3 * dpr()); renderLegend(); };
-    c.legendV = b.querySelector(".v"); box.append(b); }
+    c.legendV = b.querySelector(".v"); c.legendH = b.querySelector(".h"); box.append(b); }
 }
 function legendSpeeds() {                                        // 범례 옆 속도 (보간 구간의 이동 거리로)
   const T = LOGP.T; if (!T) return;
   const [k, j] = LOGP.ij || [0, 0], dt = (T[j] - T[k]) / 1000;
-  for (const c of LOGP.cars) if (c.legendV) { const v = dt > 0 ? Math.hypot(c.src.x[j] - c.src.x[k], c.src.y[j] - c.src.y[k]) / 10 / dt : 0; const s = `${Math.round(v)} cm/s`; if (c.legendV.textContent !== s) c.legendV.textContent = s; }
+  for (const c of LOGP.cars) if (c.legendV) { const v = dt > 0 ? Math.hypot(c.src.x[j] - c.src.x[k], c.src.y[j] - c.src.y[k]) / 10 / dt : 0; const s = `${Math.round(v)} cm/s`; if (c.legendV.textContent !== s) c.legendV.textContent = s;
+    const h = c.hitN ? `충돌 ${c.hitN}` : ""; if (c.legendH.textContent !== h) c.legendH.textContent = h; }
 }
 let logLast = performance.now();
 function logFrame(now) {
@@ -2732,7 +2775,7 @@ function logFrame(now) {
   if (!$("pageLog").hidden) {
     logResize();
     if (LOGP.playing && LOGP.T) { LOGP.t = Math.min(LOGP.dur, LOGP.t + dt * LOGP.speed); if (LOGP.t >= LOGP.dur) LOGP.playing = false; logPose(); logUI(); }
-    drawBoard({ cv: lcv, g: lctx, cam: LOGP.cam }, LOGP.map, LOGP.cars, LOGP.follow, false, $("logNames").checked);
+    drawBoard({ cv: lcv, g: lctx, cam: LOGP.cam }, LOGP.map, LOGP.cars, LOGP.follow, false, $("logNames").checked, LOGP.marks || []);
     legendSpeeds();
   }
   requestAnimationFrame(logFrame);
