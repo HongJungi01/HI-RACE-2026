@@ -660,6 +660,7 @@ canvas#logCv { display: block; width: 100%; height: max(360px, calc(100dvh - 150
       <label class="tb-field rec-tog" for="recTog" title="켜 둔 채로 ▶ 모두 실행을 누르면 맵과 각 차의 위치·방향을 기록해 올립니다. ⏹ 모두 정지(또는 토글 끄기)로 끝냄. 탭 3에서 재생"><input id="recTog" type="checkbox"><i class="rec-dot"></i>로그 녹화</label>
       <span class="status" id="recOut" hidden></span>
       <span class="grow"></span>
+      <label class="tb-field" for="simNames"><input id="simNames" type="checkbox" checked>차 이름</label>
       <button id="viewFit" type="button">맵 전체</button>
     </div>
     <div class="canvas-box">
@@ -747,6 +748,7 @@ canvas#logCv { display: block; width: 100%; height: max(360px, calc(100dvh - 150
     <input id="logSeek" type="range" min="0" max="1000" step="1" value="0" disabled aria-label="재생 위치">
     <span class="status" id="logTime">0.0 / 0.0 s</span>
     <label class="tb-field" for="logSpeed">속도 <select id="logSpeed"><option value="0.25">×0.25</option><option value="0.5">×0.5</option><option value="1" selected>×1</option><option value="2">×2</option><option value="4">×4</option><option value="8">×8</option></select></label>
+    <label class="tb-field" for="logNames"><input id="logNames" type="checkbox" checked>차 이름</label>
     <button id="logFit" type="button">맵 전체</button>
     <button id="logDel" type="button" class="danger" hidden>삭제</button>
   </div>
@@ -2025,9 +2027,9 @@ function fitSim() {
   SIM.follow = null; renderCarList();
 }
 const ccol = k => colors[k] || getComputedStyle(document.documentElement).getPropertyValue("--" + k).trim();
-function drawSim() { simResize(); drawBoard({ cv: scv, g: sctx, cam: scam }, curMap(), SIM.cars, SIM.follow, true); }
+function drawSim() { simResize(); drawBoard({ cv: scv, g: sctx, cam: scam }, curMap(), SIM.cars, SIM.follow, true, $("simNames").checked); }
 // 맵 + 차량 그리기 (탭 2 보드와 탭 3 로그 시청이 같이 씀). live = 탭 2 (선택·초음파·회전 핸들 표시)
-function drawBoard(V, m, cars, follow, live) {
+function drawBoard(V, m, cars, follow, live, names = true) {
   const scv = V.cv, scam = V.cam, g = V.g, W = scv.width, H = scv.height, k = dpr(); if (!W) return;
   const sToPx = (x, y) => [W / 2 + (x - scam.x) * scam.s, H / 2 - (y - scam.y) * scam.s];
   g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = m ? m.floor : colors.field; g.fillRect(0, 0, W, H);   // 바닥색으로 화면 전체를 채움 (확대해도 맵 바깥이 잘려 보이지 않게)
@@ -2080,10 +2082,12 @@ function drawBoard(V, m, cars, follow, live) {
     // 이름표 (화면 좌표)
     g.setTransform(1, 0, 0, 1, 0, 0);
     const [lx, ly] = sToPx(p.x, p.y);
-    g.font = `600 ${11.5 * k}px "IBM Plex Sans KR", sans-serif`; g.textAlign = "center"; g.textBaseline = "bottom";
-    const tw = g.measureText(car.name).width + 10 * k; g.fillStyle = col; g.globalAlpha = 0.9;
-    g.fillRect(lx - tw / 2, ly - (B.W / 2 + 4) * scam.s - 18 * k, tw, 17 * k); g.globalAlpha = 1; g.fillStyle = "#fff";
-    g.fillText(car.name, lx, ly - (B.W / 2 + 4) * scam.s - 4 * k);
+    if (names) {                                               // 상단 '차 이름' 체크박스로 켜고 끔
+      g.font = `600 ${11.5 * k}px "IBM Plex Sans KR", sans-serif`; g.textAlign = "center"; g.textBaseline = "bottom";
+      const tw = g.measureText(car.name).width + 10 * k; g.fillStyle = col; g.globalAlpha = 0.9;
+      g.fillRect(lx - tw / 2, ly - (B.W / 2 + 4) * scam.s - 18 * k, tw, 17 * k); g.globalAlpha = 1; g.fillStyle = "#fff";
+      g.fillText(car.name, lx, ly - (B.W / 2 + 4) * scam.s - 4 * k);
+    }
     // 회전 핸들 (선택 + 정지 상태)
     for (const [wx, wy, txt, src] of usLabels.splice(0)) {   // 초음파 거리 라벨 (화면 좌표)
       const [tx, ty] = sToPx(wx, wy); g.font = `500 ${11 * k}px "IBM Plex Mono", monospace`; g.textAlign = "center"; g.textBaseline = "middle";
@@ -2728,7 +2732,7 @@ function logFrame(now) {
   if (!$("pageLog").hidden) {
     logResize();
     if (LOGP.playing && LOGP.T) { LOGP.t = Math.min(LOGP.dur, LOGP.t + dt * LOGP.speed); if (LOGP.t >= LOGP.dur) LOGP.playing = false; logPose(); logUI(); }
-    drawBoard({ cv: lcv, g: lctx, cam: LOGP.cam }, LOGP.map, LOGP.cars, LOGP.follow, false);
+    drawBoard({ cv: lcv, g: lctx, cam: LOGP.cam }, LOGP.map, LOGP.cars, LOGP.follow, false, $("logNames").checked);
     legendSpeeds();
   }
   requestAnimationFrame(logFrame);
@@ -2739,6 +2743,11 @@ $("logSeek").oninput = () => { if (!LOGP.T) return; LOGP.seeking = true; LOGP.t 
 $("logSeek").onchange = () => { LOGP.seeking = false; };
 $("logSpeed").onchange = () => { LOGP.speed = +$("logSpeed").value || 1; };
 $("logFit").onclick = logFit;
+// 차 이름 표시 켜고 끄기 (탭 2·3 따로, 이 브라우저에 기억)
+for (const id of ["simNames", "logNames"]) {
+  try { const v = localStorage.getItem("irsim." + id); if (v != null) $(id).checked = v === "1"; } catch (e) {}
+  $(id).onchange = () => { try { localStorage.setItem("irsim." + id, $(id).checked ? "1" : "0"); } catch (e) {} };
+}
 $("logDel").onclick = async () => {
   const e = LOGP.entry, b = $("logDel"); if (!e) return;
   if (!(b.dataset.arm && Date.now() - +b.dataset.arm < 3000)) { b.dataset.arm = Date.now(); b.textContent = "한 번 더 누르면 삭제"; return; }
