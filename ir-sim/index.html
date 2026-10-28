@@ -548,6 +548,25 @@ div.CodeMirror-selected, .CodeMirror-focused div.CodeMirror-selected { backgroun
 .cm-s-default .cm-def { color: var(--fg); font-weight: 600; }
 .cm-s-default .cm-variable, .cm-s-default .cm-variable-2, .cm-s-default .cm-property, .cm-s-default .cm-operator { color: var(--fg); }
 .cm-err-line { background: var(--err-bg); }
+/* 로그 녹화 토글 (탭 2) */
+.rec-tog { cursor: pointer; user-select: none; }
+.rec-tog input { margin: 0; }
+.rec-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); display: inline-block; }
+.rec-tog:has(input:checked) { color: var(--err); font-weight: 600; }
+.rec-tog:has(input:checked) .rec-dot { background: var(--err); }
+#recOut.live { background: var(--err-bg); color: var(--err); }
+/* 탭 3: 로그 시청 — 맵이 화면을 거의 꽉 채움 */
+.logview { margin: 0 auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px; min-width: 0; }
+.logview .toolbar { flex-wrap: nowrap; }
+@media (max-width: 760px) { .logview .toolbar { flex-wrap: wrap; } }
+#logSel { max-width: min(460px, 40vw); }
+#logSeek { flex: 1; min-width: 120px; accent-color: var(--accent); }
+#logTime { min-width: 104px; text-align: center; }
+canvas#logCv { display: block; width: 100%; height: max(360px, calc(100dvh - 150px)); background: var(--field); border-radius: 3px; touch-action: none; }
+.log-legend { position: absolute; top: 8px; left: 8px; display: flex; flex-direction: column; gap: 4px; max-width: 60%; }
+.log-legend button { display: flex; align-items: center; gap: 6px; padding: 3px 8px; font-size: 12px; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--cc); border-radius: 4px; text-align: left; opacity: .92; }
+.log-legend button.on { background: var(--cc); color: #fff; border-color: var(--cc); }
+.log-legend button .v { font-family: var(--font-num); font-size: 11px; opacity: .8; }
 </style>
 
 <header class="top">
@@ -555,6 +574,7 @@ div.CodeMirror-selected, .CodeMirror-focused div.CodeMirror-selected { backgroun
   <div class="tabs" role="tablist">
     <button id="tabVehicle" role="tab" type="button" aria-selected="true">1 · 차량 모델</button>
     <button id="tabSim" role="tab" type="button" aria-selected="false">2 · 시뮬레이션</button>
+    <button id="tabLog" role="tab" type="button" aria-selected="false">3 · 로그 시청</button>
   </div>
   <span class="frame-note">차량 프레임: 원점 후륜축 중심 · x 전방 · y 좌측 · cm · yaw 반시계 +</span>
 </header>
@@ -636,6 +656,9 @@ div.CodeMirror-selected, .CodeMirror-focused div.CodeMirror-selected { backgroun
       <button id="allStop" type="button">⏹ 모두 정지</button>
       <label class="tb-field" for="speedSel">속도 <select id="speedSel"><option value="0.25">×0.25</option><option value="0.5">×0.5</option><option value="1" selected>×1</option><option value="2">×2</option><option value="4">×4</option></select></label>
       <span class="status" id="rtfOut"></span>
+      <span class="tb-sep"></span>
+      <label class="tb-field rec-tog" for="recTog" title="켜 둔 채로 ▶ 모두 실행을 누르면 맵과 각 차의 위치·방향을 기록해 올립니다. ⏹ 모두 정지(또는 토글 끄기)로 끝냄. 탭 3에서 재생"><input id="recTog" type="checkbox"><i class="rec-dot"></i>로그 녹화</label>
+      <span class="status" id="recOut" hidden></span>
       <span class="grow"></span>
       <button id="viewFit" type="button">맵 전체</button>
     </div>
@@ -714,6 +737,25 @@ div.CodeMirror-selected, .CodeMirror-focused div.CodeMirror-selected { backgroun
       </div>
     </div>
   </section>
+</main>
+
+<!-- ================= 탭 3: 로그 시청 ================= -->
+<main id="pageLog" class="logview" hidden>
+  <div class="toolbar">
+    <label class="tb-field" for="logSel">기록 <select id="logSel"></select></label>
+    <button id="logPlay" type="button" disabled>▶ 재생</button>
+    <input id="logSeek" type="range" min="0" max="1000" step="1" value="0" disabled aria-label="재생 위치">
+    <span class="status" id="logTime">0.0 / 0.0 s</span>
+    <label class="tb-field" for="logSpeed">속도 <select id="logSpeed"><option value="0.25">×0.25</option><option value="0.5">×0.5</option><option value="1" selected>×1</option><option value="2">×2</option><option value="4">×4</option><option value="8">×8</option></select></label>
+    <button id="logFit" type="button">맵 전체</button>
+    <button id="logDel" type="button" class="danger" hidden>삭제</button>
+  </div>
+  <div class="canvas-box">
+    <canvas id="logCv" aria-label="로그 재생: 맵과 차량"></canvas>
+    <div class="log-legend" id="logLegend"></div>
+    <p class="board-msg" id="logMsg">불러오는 중…</p>
+  </div>
+  <div class="hintbar"><span id="logInfo"></span><span>빈 곳 드래그 = 시점 이동 · 휠 = 확대 · 범례에서 차 이름 클릭 = 따라가기 · Space = 재생/정지 · ← → = 2초 이동</span></div>
 </main>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
@@ -1627,14 +1669,16 @@ const countsPerCm = P => P.ppr * 4 * P.gear / (Math.PI * P.wheelD);
 
 // ================= 탭 전환 =================
 function showTab(t) {
-  const v = t !== "sim";
-  $("pageVehicle").hidden = !v; $("pageSim").hidden = v;
-  $("tabVehicle").setAttribute("aria-selected", v); $("tabSim").setAttribute("aria-selected", !v);
+  if (t === "log" && editingCar) { endLayoutEdit(true); showTab("log"); return; }
+  const v = t === "vehicle";
+  $("pageVehicle").hidden = !v; $("pageSim").hidden = t !== "sim"; $("pageLog").hidden = t !== "log";
+  $("tabVehicle").setAttribute("aria-selected", v); $("tabSim").setAttribute("aria-selected", t === "sim"); $("tabLog").setAttribute("aria-selected", t === "log");
   if (v) requestAnimationFrame(() => { resize(); draw(); });
-  else { if (editingCar) { endLayoutEdit(true); return; } requestAnimationFrame(() => { simResize(); if (!scv._fitted && MAPS.length) { scv._fitted = true; fitSim(); } drawSim(); if (cm) cm.refresh(); }); }
+  else if (t === "sim") { if (editingCar) { endLayoutEdit(true); return; } requestAnimationFrame(() => { simResize(); if (!scv._fitted && MAPS.length) { scv._fitted = true; fitSim(); } drawSim(); if (cm) cm.refresh(); }); }
+  else requestAnimationFrame(() => { logShown(); });
   try { localStorage.setItem("irsim.tab", t); } catch (e) {}
 }
-$("tabVehicle").onclick = () => showTab("vehicle"); $("tabSim").onclick = () => showTab("sim");
+$("tabVehicle").onclick = () => showTab("vehicle"); $("tabSim").onclick = () => showTab("sim"); $("tabLog").onclick = () => showTab("log");
 
 // ======================================================================
 // 탭 2: 시뮬레이션 — 차량마다 별도 워커(car-worker.js: Mega 에뮬레이션 + 차량 모델 + 센서)
@@ -1943,6 +1987,7 @@ function simFrame(now) {
       const n = Math.floor(simAcc);
       if (n > 0) {
         simAcc -= n; rtfWin.sim += n;
+        recStep(n);                                            // 로그 녹화: 이번 스텝 전 위치(= 모든 차 같은 시각) 기록
         for (const car of run) {
           if (car.kind === "dummy") { dummyStep(car, n); continue; }   // 더미는 메인에서 바로 계산
           const others = [];
@@ -1961,6 +2006,7 @@ function simFrame(now) {
       rtfWin.sim = rtfWin.wall = 0;
     }
     if (!run.length) $("rtfOut").textContent = "";
+    recCheck();
     drawSim(); tickSimUI();
   }
   requestAnimationFrame(simFrame);
@@ -1979,12 +2025,13 @@ function fitSim() {
   SIM.follow = null; renderCarList();
 }
 const ccol = k => colors[k] || getComputedStyle(document.documentElement).getPropertyValue("--" + k).trim();
-function drawSim() {
-  simResize();
-  const W = scv.width, H = scv.height, k = dpr(), g = sctx; if (!W) return;
-  const m = curMap();
+function drawSim() { simResize(); drawBoard({ cv: scv, g: sctx, cam: scam }, curMap(), SIM.cars, SIM.follow, true); }
+// 맵 + 차량 그리기 (탭 2 보드와 탭 3 로그 시청이 같이 씀). live = 탭 2 (선택·초음파·회전 핸들 표시)
+function drawBoard(V, m, cars, follow, live) {
+  const scv = V.cv, scam = V.cam, g = V.g, W = scv.width, H = scv.height, k = dpr(); if (!W) return;
+  const sToPx = (x, y) => [W / 2 + (x - scam.x) * scam.s, H / 2 - (y - scam.y) * scam.s];
   g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = m ? m.floor : colors.field; g.fillRect(0, 0, W, H);   // 바닥색으로 화면 전체를 채움 (확대해도 맵 바깥이 잘려 보이지 않게)
-  const fc = SIM.cars.find(c => c.id === SIM.follow); if (fc) { scam.x = fc.pose.x; scam.y = fc.pose.y; }
+  const fc = cars.find(c => c.id === follow); if (fc) { scam.x = fc.pose.x; scam.y = fc.pose.y; }
   const world = () => g.setTransform(scam.s, 0, 0, -scam.s, W / 2 - scam.x * scam.s, H / 2 + scam.y * scam.s);
   if (m) {
     world();
@@ -1995,14 +2042,14 @@ function drawSim() {
     const n = [-Math.sin(m.start.yaw), Math.cos(m.start.yaw)]; g.moveTo(m.start.x - n[0] * 12, m.start.y - n[1] * 12); g.lineTo(m.start.x + n[0] * 12, m.start.y + n[1] * 12); g.stroke();
   }
   // 궤적
-  for (const car of SIM.cars) if (car.trail.length > 1) {
+  for (const car of cars) { const N = car.trailN ?? car.trail.length; if (N < 2) continue;   // trailN: 로그 재생 중 지금 시각까지만
     world(); g.strokeStyle = ccol(car.color); g.globalAlpha = 0.55; g.lineWidth = 1.2 * k / scam.s; g.beginPath();
-    car.trail.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.stroke(); g.globalAlpha = 1;
+    for (let i = 0; i < N; i++) { const [x, y] = car.trail[i]; i ? g.lineTo(x, y) : g.moveTo(x, y); } g.stroke(); g.globalAlpha = 1;
   }
   // 차량
   const usLabels = [];
-  for (const car of SIM.cars) {
-    const p = car.pose, col = ccol(car.color), sel = car.id === SIM.sel, B = car.cfg.body;
+  for (const car of cars) {
+    const p = car.pose, col = ccol(car.color), sel = live && car.id === SIM.sel, B = car.cfg.body;
     world(); g.translate(p.x, p.y); g.rotate(p.yaw);
     if (sel) car.cfg.us.forEach((u, ui) => {                 // 선택한 차의 초음파 빔 (서보 모듈은 현재 서보 각도만큼 회전)
       // 측정값이 있으면 그 거리까지 채우고 끝에 호, 에코 없으면 200 cm 점선 윤곽만, 아직 값이 없으면(정지 직후) 방향만 80 cm
@@ -2042,7 +2089,7 @@ function drawSim() {
       const [tx, ty] = sToPx(wx, wy); g.font = `500 ${11 * k}px "IBM Plex Mono", monospace`; g.textAlign = "center"; g.textBaseline = "middle";
       const w = g.measureText(txt).width + 8 * k; g.fillStyle = colors.panel; g.globalAlpha = 0.85; g.fillRect(tx - w / 2, ty - 8 * k, w, 16 * k); g.globalAlpha = 1;
       g.fillStyle = txt === "없음" ? colors.muted : colors.us; g.fillText(txt, tx, ty); }
-    if (sel && car.status === "stopped") { const [hx, hy] = simHandle(car); g.strokeStyle = colors.accent; g.lineWidth = 1.5 * k;
+    if (live && sel && car.status === "stopped") { const [hx, hy] = simHandle(car); g.strokeStyle = colors.accent; g.lineWidth = 1.5 * k;
       g.beginPath(); g.moveTo(lx, ly); g.lineTo(hx, hy); g.stroke(); g.beginPath(); g.arc(hx, hy, 7 * k, 0, 2 * Math.PI); g.fillStyle = colors.panel; g.fill(); g.stroke();
       g.beginPath(); g.arc(hx, hy, 3.5 * k, -Math.PI * 0.9, Math.PI * 0.5); g.stroke(); }
   }
@@ -2301,9 +2348,9 @@ $("serialClear").onclick = () => { const car = selCar(); if (car) { car.serial =
 // ---- 툴바 / 차량 불러오기 ----
 $("mapSel").onchange = e => setMap(e.target.value);
 $("speedSel").onchange = e => { SIM.speed = +e.target.value; simSave(); };
-$("allRun").onclick = () => SIM.cars.forEach(runCar);
+$("allRun").onclick = () => { recStart(); SIM.cars.forEach(runCar); };
 $("allPause").onclick = () => SIM.cars.forEach(pauseCar);
-$("allStop").onclick = () => SIM.cars.forEach(stopCar);
+$("allStop").onclick = () => { recFinish(); SIM.cars.forEach(stopCar); };
 $("viewFit").onclick = fitSim;
 const addTab1 = () => { if (editingCar) { $("addMsg").textContent = "탭 1에서 레이아웃 편집을 먼저 끝내세요."; return; } const c = addCar(toJSON()); if (c) $("addMsg").textContent = `${c.name}을(를) 올렸습니다.`; };
 const sampleDesign = () => { const old = S; try { makeDefault(); return toJSON(); } finally { S = old; } };
@@ -2367,7 +2414,31 @@ async function claudeBackend() {
     upsert: entry => write(cars => { const i = cars.findIndex(c => c.name === entry.name);
       if (i >= 0) { entry.id = cars[i].id; cars[i] = entry; } else { if (cars.length >= MAX_MINE) throw { code: "too_big", message: `한 사람당 ${MAX_MINE}대까지 올릴 수 있습니다.` }; cars.push(entry); }
       return cars; }),
-    remove: id => write(cars => cars.filter(c => c.id !== id)) };
+    remove: id => write(cars => cars.filter(c => c.id !== id)),
+    // 주행 로그: simlogs/<id> = 목록용 메타, simlogs/<id>/chunks/<i> = 데이터 (문서 하나 256 KB 제한 → 200 KB씩 나눔)
+    subscribeLogs(cb) {
+      db.collection("simlogs").onSnapshot(async snap => {
+        const docs = snap.docs.filter(d => d.exists).map(d => ({ id: d.id, ...d.data() }));
+        const ids = [...new Set(docs.map(d => d.owner).filter(Boolean))];
+        if (user && ids.length) { try { const ps = await user.profiles(ids); for (const i of ids) names[i] = ps[i]?.name || names[i] || ""; } catch (e) {} }
+        cb(docs.map(d => ({ id: d.id, uid: d.owner, who: names[d.owner] || "팀원", meta: d.meta, createdAt: d.createdAt || 0, chunks: d.chunks || 0 })));
+      }, e => logInfo("로그 목록 연결이 끊겼습니다 (" + e.code + "). 새로 고침하세요."));
+    },
+    async uploadLog(meta, data) {
+      const id = "L" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), parts = [];
+      for (let i = 0; i < data.length; i += 200000) parts.push(data.slice(i, i + 200000));
+      for (let i = 0; i < parts.length; i++) await db.doc(`simlogs/${id}/chunks/${i}`).set({ d: parts[i] });
+      await db.doc("simlogs/" + id).set({ owner: uid, meta, chunks: parts.length, createdAt: Date.now() });   // 데이터를 다 올린 뒤 목록에 나타나게
+      return id;
+    },
+    async loadLog(e) {
+      const snaps = await Promise.all(Array.from({ length: e.chunks }, (_, i) => db.doc(`simlogs/${e.id}/chunks/${i}`).get()));
+      return snaps.map(s => s.exists ? s.data().d : "").join("");
+    },
+    async removeLog(e) {
+      await db.doc("simlogs/" + e.id).delete();
+      for (let i = 0; i < e.chunks; i++) await db.doc(`simlogs/${e.id}/chunks/${i}`).delete();
+    } };
 }
 async function supabaseBackend() {
   const C = window.GARAGE_CONFIG;
@@ -2402,6 +2473,20 @@ async function supabaseBackend() {
     },
     async privateCode(id) { const { data, error } = await sb.from("garage_code").select("code").eq("car_id", id).maybeSingle(); if (error) throw err(error); return data?.code ?? null; },
     async remove(id) { const { error } = await sb.from("garage_cars").delete().eq("id", id); if (error) throw err(error); await be.reload?.(); },
+    // 주행 로그: 테이블 sim_logs (sim_logs.sql로 한 번 만들어 둠). 목록은 data 빼고 읽음
+    async subscribeLogs(cb) {
+      const load = async () => { const { data, error } = await sb.from("sim_logs").select("id,owner,owner_name,meta,created_at").order("created_at", { ascending: false }).limit(100);
+        if (error) { logInfo("로그 목록을 읽지 못했습니다: " + error.message + (error.code === "42P01" || /sim_logs/.test(error.message) ? " (Supabase에서 sim_logs.sql을 실행해 테이블을 만들어야 합니다)" : "")); cb([]); return; }
+        cb(data.map(r => ({ id: r.id, uid: r.owner, who: r.owner_name || "팀원", meta: r.meta, createdAt: Date.parse(r.created_at) }))); };
+      await load(); be.reloadLogs = load;
+      try { sb.channel("simlogs").on("postgres_changes", { event: "*", schema: "public", table: "sim_logs" }, load).subscribe(); } catch (e) {}
+    },
+    async uploadLog(meta, data) {
+      const { data: row, error } = await sb.from("sim_logs").insert({ owner: uid, owner_name: myName, meta, data }).select("id").single();
+      if (error) throw err(error); await be.reloadLogs?.(); return row.id;
+    },
+    async loadLog(e) { const { data, error } = await sb.from("sim_logs").select("data").eq("id", e.id).single(); if (error) throw err(error); return data.data; },
+    async removeLog(e) { const { error } = await sb.from("sim_logs").delete().eq("id", e.id); if (error) throw err(error); await be.reloadLogs?.(); },
     login: () => sb.auth.signInWithOAuth({ provider: "google", options: { redirectTo: location.origin + location.pathname, queryParams: { prompt: "select_account" } } }),
     logout: async () => { await sb.auth.signOut(); location.reload(); } };
   return be;
@@ -2410,8 +2495,9 @@ async function initGarage() {
   let be = null;
   if (window.claude?.use) be = await claudeBackend();          // claude.ai 아티팩트 안 (외부 서버 접속 불가)
   else be = await supabaseBackend();
-  if (!be) { gInfo("공유 차고는 팀 GitHub Pages 버전(hongjungi01.github.io/HI-RACE-2026/ir-sim/)에서 쓸 수 있습니다. 여기서는 탭 1의 JSON과 .ino 파일로 주고받으세요."); return; }
+  if (!be) { gInfo("공유 차고는 팀 GitHub Pages 버전(hongjungi01.github.io/HI-RACE-2026/ir-sim/)에서 쓸 수 있습니다. 여기서는 탭 1의 JSON과 .ino 파일로 주고받으세요."); initLogs(null); return; }
   GARAGE.be = be; GARAGE.uid = be.uid;
+  initLogs(be);
   $("garageFilter").hidden = false; $("garageUp").hidden = !be.canWrite; $("garagePrivateWrap").hidden = !be.supportsPrivate;
   $("garageLogin").hidden = !(be.login && !be.uid); $("garageLogout").hidden = !(be.logout && be.uid);
   gInfo(be.canWrite ? `팀원이 올린 차를 '맵에 올리기'로 바로 불러와 주행할 수 있습니다.${be.who ? ` (${be.who}로 로그인)` : ""}`
@@ -2475,6 +2561,208 @@ $("garageLogin").onclick = () => GARAGE.be?.login?.();
 $("garageLogout").onclick = () => GARAGE.be?.logout?.();
 $("garageFilter").oninput = renderGarage;
 
+// ======================================================================
+// 주행 로그: 탭 2에서 녹화 (맵 + 차마다 위치·방향·앞바퀴 조향만) → 백엔드에 올림 → 탭 3에서 영상처럼 재생
+// 시각 = 시뮬레이션 시간 (lockstep이라 모든 차가 같은 시각). REC_DT마다 한 번, 스텝 직전 위치를 찍음
+// 저장 형식 (data, JSON 문자열): { v, looks[차], T[ms 차분], cars[{x,y,a,d}] }
+//   x·y = mm 정수, a = 누적 yaw(감기 풀린 값) mrad 정수, d = 앞바퀴 조향 mrad 정수, 모두 앞 값과의 차분
+// ======================================================================
+const REC_DT = 50, REC_MAX = 10 * 60 * 1000, LOG_MINE_MAX = 20;
+const REC = { cur: null };
+const ACTIVE = ["running", "paused", "compiling", "starting"];
+const r1 = v => Math.round(v * 10) / 10;
+const carLook = c => ({ body: { ...c.cfg.body }, shapes: c.cfg.shapes.filter(s => s.type !== "mega").map(s => ({ type: s.type, pts: s.pts.map(([x, y]) => [r1(x), r1(y)]) })),
+  us: c.cfg.us.map(u => ({ x: r1(u.x), y: r1(u.y), yaw: Math.round(u.yaw * 1000) / 1000, servo: u.servo })), irAll: c.cfg.irAll.map(q => ({ x: r1(q.x), y: r1(q.y) })) });
+const wrapPi = a => Math.atan2(Math.sin(a), Math.cos(a));
+function recShow() {
+  const el = $("recOut"), R = REC.cur, on = $("recTog").checked;
+  el.hidden = !on && !R;
+  if (R) { el.className = "status live"; el.textContent = `● 녹화 중 ${(R.t / 1000).toFixed(1)} s`; }
+  else if (on) { el.className = "status"; el.textContent = "▶ 모두 실행 누르면 녹화 시작"; }
+}
+function recStart() {
+  if (!$("recTog").checked || REC.cur || !SIM.cars.length) return;
+  const cars = [...SIM.cars];
+  REC.cur = { cars, looks: cars.map(carLook), map: SIM.mapId, t: 0, next: 0, wall0: Date.now(), T: [],
+    P: cars.map(() => ({ x: [], y: [], a: [], d: [], ua: null, ra: 0 })) };
+  recShow();
+}
+function recSample(R) {
+  R.T.push(Math.round(R.t));
+  R.cars.forEach((c, i) => { const p = c.pose, Q = R.P[i];
+    Q.ua = Q.ua == null ? p.yaw : Q.ua + wrapPi(p.yaw - Q.ra); Q.ra = p.yaw;   // yaw 감기 풀기 (재생 때 보간이 튀지 않게)
+    Q.x.push(Math.round(p.x * 10)); Q.y.push(Math.round(p.y * 10)); Q.a.push(Math.round(Q.ua * 1000)); Q.d.push(Math.round((p.delta || 0) * 1000)); });
+}
+function recStep(n) {
+  const R = REC.cur; if (!R) return;
+  if (R.t >= R.next) { recSample(R); R.next = R.t + REC_DT; }
+  R.t += n;
+  if (R.t >= REC_MAX) recFinish("최대 10분이라 녹화를 끝냈습니다.");
+}
+function recCheck() {                                            // 매 프레임: 모든 차가 멈추면(정지·오류) 녹화 끝
+  const R = REC.cur;
+  if (R && Date.now() - R.wall0 > 1500 && !R.cars.some(c => SIM.cars.includes(c) && ACTIVE.includes(c.status))) recFinish();
+  if (R && REC.cur) { const s = `● 녹화 중 ${(R.t / 1000).toFixed(1)} s`; if ($("recOut").textContent !== s) $("recOut").textContent = s; }
+}
+const deltas = a => a.map((v, i) => i ? v - a[i - 1] : v);
+async function recFinish(why) {
+  const R = REC.cur; if (!R) return;
+  REC.cur = null;
+  if (R.T.length && R.t > R.T.at(-1) + 5) recSample(R);           // 마지막 위치
+  recShow();
+  if (R.T.length < 2) { $("recOut").hidden = false; $("recOut").className = "status"; $("recOut").textContent = "기록된 주행이 없습니다"; return; }
+  const m = MAPS.find(x => x.id === R.map);
+  const meta = { v: 1, map: R.map, mapTitle: m ? m.title : R.map, dur: R.T.at(-1), n: R.T.length, cars: R.cars.map(c => ({ name: c.name, color: c.color, ...(c.kind === "dummy" ? { kind: "dummy" } : {}) })) };
+  const data = JSON.stringify({ v: 1, looks: R.looks, T: deltas(R.T), cars: R.P.map(Q => ({ x: deltas(Q.x), y: deltas(Q.y), a: deltas(Q.a), d: deltas(Q.d) })) });
+  const entry = { id: "local" + Date.now(), local: true, uid: LOGS.uid, who: "나", meta, createdAt: Date.now(), data };
+  LOGS.local.unshift(entry); renderLogSel();
+  const say = t => { $("recOut").hidden = false; $("recOut").className = "status"; $("recOut").textContent = t; };
+  const tail = (why ? why + " " : "") + `${(meta.dur / 1000).toFixed(1)} s · ${(data.length / 1024).toFixed(0)} KB`;
+  if (!LOGS.be?.uploadLog || !LOGS.be.canWrite) { say(`녹화 끝 (${tail}) · 올릴 수 없어 이 창에만 있음 → 탭 3`); return; }
+  if (LOGS.entries.filter(e => e.uid === LOGS.uid).length >= LOG_MINE_MAX) { say(`녹화 끝 (${tail}) · 내 로그가 ${LOG_MINE_MAX}개라 안 올림 (탭 3에서 지우기) → 이 창에서만 재생`); return; }
+  say(`녹화 끝 (${tail}) · 올리는 중…`);
+  try { const id = await LOGS.be.uploadLog(meta, data); entry.uploadedId = id; LOGS.local = LOGS.local.filter(e => e !== entry); LOGS.pending = id;
+    say(`녹화 올림 ✓ (${tail}) → 탭 3에서 재생`); renderLogSel(); }
+  catch (e) { say(`녹화 끝 (${tail}) · 올리지 못함 (${e.message || e.code}) → 이 창에서만 재생`); }
+}
+$("recTog").onchange = () => { if (!$("recTog").checked) recFinish(); recShow(); };
+
+// ---- 로그 목록 ----
+const LOGS = { be: null, uid: null, entries: [], local: [], pending: null };
+function logInfo(t) { $("logInfo").textContent = t; }
+function initLogs(be) {
+  LOGS.be = be?.subscribeLogs ? be : null; LOGS.uid = be?.uid || null;
+  if (!LOGS.be) { logInfo(window.claude?.use ? "여기서는 이 창에서 녹화한 기록만 재생합니다 (새로 고침하면 사라짐). 로그 올리기·팀 공유는 GitHub Pages 버전에서." : "로그 서버 설정이 없어 이 창에서 녹화한 기록만 재생합니다 (새로 고침하면 사라짐)."); renderLogSel(); return; }
+  logInfo(be.canWrite ? "탭 2에서 '로그 녹화'를 켜고 ▶ 모두 실행 → ⏹ 모두 정지하면 여기에 올라옵니다." : be.login ? "목록은 누구나 볼 수 있고, 올리려면 탭 2 공유 차고에서 Google로 로그인하세요." : "읽기 전용입니다. 올리려면 공유 권한이 Contributor 이상이어야 합니다.");
+  LOGS.be.subscribeLogs(es => { LOGS.entries = es; renderLogSel(); });
+}
+const logAll = () => [...LOGS.local, ...LOGS.entries].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+const logLabel = e => { const m = e.meta || {}, cs = (m.cars || []).map(c => c.name).join(", ");
+  return `${fmtTime(e.createdAt || 0)} · ${(m.mapTitle || m.map || "?").replace(/\s*\(.*\)$/, "")} · ${((m.dur || 0) / 1000).toFixed(1)} s · ${cs} · ${e.local ? "이 창만" : (LOGS.uid && e.uid === LOGS.uid ? "나" : e.who)}`; };
+function renderLogSel() {
+  const sel = $("logSel"), all = logAll(), cur = LOGP.entry?.id;
+  sel.innerHTML = all.length ? all.map(e => `<option value="${esc(e.id)}">${esc(logLabel(e))}</option>`).join("") : `<option value="">기록 없음</option>`;
+  sel.disabled = !all.length;
+  // 방금 올린 기록이 목록에 나타나면 그걸 고름
+  const want = LOGS.pending && all.find(e => e.id === LOGS.pending) ? LOGS.pending : cur && all.find(e => e.id === cur) ? cur : all[0]?.id;
+  if (want) sel.value = want;
+  if (!all.length) { $("logMsg").hidden = false; $("logMsg").textContent = "아직 기록이 없습니다. 탭 2에서 '로그 녹화'를 켜고 ▶ 모두 실행하세요."; }
+  if (LOGS.pending && want === LOGS.pending) LOGS.pending = null;
+  if (want && want !== cur) { if (!$("pageLog").hidden) openLog(all.find(e => e.id === want)); else LOGP.want = want; }
+  else if (cur && !all.find(e => e.id === cur)) closeLog("이 기록은 지워졌습니다.");
+}
+$("logSel").onchange = () => { const e = logAll().find(x => x.id === $("logSel").value); if (e) openLog(e); };
+
+// ---- 재생 ----
+const lcv = $("logCv"), lctx = lcv.getContext("2d");
+const LOGP = { entry: null, cars: [], T: null, t: 0, dur: 0, playing: false, speed: 1, follow: null, cam: { x: 0, y: 0, s: 2 }, map: null, want: null, loadSeq: 0 };
+function logResize() { const r = lcv.getBoundingClientRect(), w = Math.round(r.width * dpr()), h = Math.round(r.height * dpr()); if (w > 0 && (lcv.width !== w || lcv.height !== h)) { lcv.width = w; lcv.height = h; } }
+function logFit() {
+  logResize(); const m = LOGP.map; if (!m || !lcv.width) return;
+  const [x0, y0, x1, y1] = m.bounds, c = LOGP.cam;
+  c.x = (x0 + x1) / 2; c.y = (y0 + y1) / 2; c.s = Math.min(lcv.width / (x1 - x0), lcv.height / (y1 - y0)) * 0.96;
+  LOGP.follow = null; renderLegend();
+}
+function logShown() { logResize(); if (LOGP.want) { const e = logAll().find(x => x.id === LOGP.want); LOGP.want = null; if (e) { openLog(e); return; } } if (!LOGP.entry) { const a = logAll()[0]; if (a) openLog(a); } else if (!lcv._fitted) { lcv._fitted = true; logFit(); } }
+function decodeLog(str) {
+  const j = JSON.parse(str), cum = a => { const o = new Float64Array(a.length); let s = 0; for (let i = 0; i < a.length; i++) { s += a[i]; o[i] = s; } return o; };
+  return { looks: j.looks, T: cum(j.T), cars: j.cars.map(c => ({ x: cum(c.x), y: cum(c.y), a: cum(c.a), d: cum(c.d) })) };
+}
+function closeLog(msg) {
+  LOGP.entry = null; LOGP.cars = []; LOGP.T = null; LOGP.playing = false;
+  $("logPlay").disabled = $("logSeek").disabled = true; $("logDel").hidden = true; $("logLegend").innerHTML = "";
+  $("logMsg").hidden = !msg; if (msg) $("logMsg").textContent = msg; logUI();
+}
+async function openLog(e) {
+  if (!e) return;
+  const seq = ++LOGP.loadSeq;
+  LOGP.entry = e; LOGP.playing = false; LOGP.cars = []; LOGP.T = null;
+  $("logMsg").hidden = false; $("logMsg").textContent = "기록 불러오는 중…"; $("logPlay").disabled = $("logSeek").disabled = true;
+  $("logDel").hidden = !(e.local || (LOGS.uid && e.uid === LOGS.uid)); delete $("logDel").dataset.arm; $("logDel").textContent = "삭제";
+  let str;
+  try { str = e.data ?? (e.data = await LOGS.be.loadLog(e)); } catch (er) { if (seq === LOGP.loadSeq) { $("logMsg").textContent = `기록을 불러오지 못했습니다 (${er.message || er.code}).`; } return; }
+  if (seq !== LOGP.loadSeq) return;
+  let D; try { D = decodeLog(str); } catch (er) { $("logMsg").textContent = "기록 형식을 읽지 못했습니다."; return; }
+  const meta = e.meta || {};
+  LOGP.map = MAPS.find(m => m.id === meta.map) || null;
+  LOGP.T = D.T; LOGP.dur = D.T[D.T.length - 1] || 0; LOGP.t = 0;
+  LOGP.cars = D.cars.map((c, i) => { const look = D.looks[i], B = look.body, hw = B.W / 2 + 1.3, mc = meta.cars?.[i] || {};
+    const trail = Array.from(c.x, (x, k) => [x / 10, c.y[k] / 10]);
+    return { id: "r" + i, name: mc.name || `${i + 1}번 차`, color: mc.color || CAR_COLORS[i % 4], src: c, trail, trailN: 1, hit: false, status: "replay",
+      cfg: { ...look, foot: [[-B.rear, hw], [B.L + B.front, hw], [B.L + B.front, -hw], [-B.rear, -hw]] }, pose: { x: 0, y: 0, yaw: 0, delta: 0 } }; });
+  $("logMsg").hidden = !!LOGP.map; if (!LOGP.map) $("logMsg").textContent = `이 기록의 맵(${meta.map})이 지금 맵 목록에 없습니다.`;
+  $("logPlay").disabled = $("logSeek").disabled = false;
+  logPose(); logFit(); renderLegend(); logUI();
+  LOGP.playing = true; logUI();
+}
+function logPose() {                                             // t 시각 위치: 앞뒤 샘플 사이 선형 보간
+  const T = LOGP.T; if (!T) return;
+  const t = LOGP.t; let lo = 0, hi = T.length - 1;
+  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (T[mid] <= t) lo = mid; else hi = mid - 1; }
+  const i = lo, j = Math.min(i + 1, T.length - 1), f = j > i ? Math.max(0, Math.min(1, (t - T[i]) / (T[j] - T[i]))) : 0;
+  LOGP.ij = [i, j];
+  for (const c of LOGP.cars) { const s = c.src, L = (arr, k) => arr[i] + (arr[j] - arr[i]) * f * k;
+    c.pose = { x: L(s.x, 1) / 10, y: L(s.y, 1) / 10, yaw: L(s.a, 1) / 1000, delta: L(s.d, 1) / 1000 }; c.trailN = i + 1; }
+}
+const fmtS = ms => (ms / 1000).toFixed(1);
+function logUI() {
+  $("logPlay").textContent = LOGP.playing ? "⏸ 정지" : (LOGP.T && LOGP.t >= LOGP.dur ? "↺ 처음부터" : "▶ 재생");
+  $("logTime").textContent = `${fmtS(LOGP.t)} / ${fmtS(LOGP.dur)} s`;
+  if (document.activeElement !== $("logSeek") || !LOGP.seeking) $("logSeek").value = LOGP.dur ? Math.round(LOGP.t / LOGP.dur * 1000) : 0;
+}
+function renderLegend() {
+  const box = $("logLegend"); box.innerHTML = "";
+  for (const c of LOGP.cars) { const b = document.createElement("button"); b.type = "button"; b.style.setProperty("--cc", `var(--${c.color})`);
+    b.className = LOGP.follow === c.id ? "on" : ""; b.title = "클릭 = 이 차 따라가기"; b.innerHTML = `<b></b><span class="v"></span>`; b.querySelector("b").textContent = c.name;
+    b.onclick = () => { LOGP.follow = LOGP.follow === c.id ? null : c.id; if (LOGP.follow) LOGP.cam.s = Math.max(LOGP.cam.s, 3 * dpr()); renderLegend(); };
+    c.legendV = b.querySelector(".v"); box.append(b); }
+}
+function legendSpeeds() {                                        // 범례 옆 속도 (보간 구간의 이동 거리로)
+  const T = LOGP.T; if (!T) return;
+  const [k, j] = LOGP.ij || [0, 0], dt = (T[j] - T[k]) / 1000;
+  for (const c of LOGP.cars) if (c.legendV) { const v = dt > 0 ? Math.hypot(c.src.x[j] - c.src.x[k], c.src.y[j] - c.src.y[k]) / 10 / dt : 0; const s = `${Math.round(v)} cm/s`; if (c.legendV.textContent !== s) c.legendV.textContent = s; }
+}
+let logLast = performance.now();
+function logFrame(now) {
+  const dt = Math.min(100, now - logLast); logLast = now;
+  if (!$("pageLog").hidden) {
+    logResize();
+    if (LOGP.playing && LOGP.T) { LOGP.t = Math.min(LOGP.dur, LOGP.t + dt * LOGP.speed); if (LOGP.t >= LOGP.dur) LOGP.playing = false; logPose(); logUI(); }
+    drawBoard({ cv: lcv, g: lctx, cam: LOGP.cam }, LOGP.map, LOGP.cars, LOGP.follow, false);
+    legendSpeeds();
+  }
+  requestAnimationFrame(logFrame);
+}
+requestAnimationFrame(logFrame);
+$("logPlay").onclick = () => { if (!LOGP.T) return; if (!LOGP.playing && LOGP.t >= LOGP.dur) LOGP.t = 0; LOGP.playing = !LOGP.playing; logPose(); logUI(); };
+$("logSeek").oninput = () => { if (!LOGP.T) return; LOGP.seeking = true; LOGP.t = $("logSeek").value / 1000 * LOGP.dur; logPose(); logUI(); };
+$("logSeek").onchange = () => { LOGP.seeking = false; };
+$("logSpeed").onchange = () => { LOGP.speed = +$("logSpeed").value || 1; };
+$("logFit").onclick = logFit;
+$("logDel").onclick = async () => {
+  const e = LOGP.entry, b = $("logDel"); if (!e) return;
+  if (!(b.dataset.arm && Date.now() - +b.dataset.arm < 3000)) { b.dataset.arm = Date.now(); b.textContent = "한 번 더 누르면 삭제"; return; }
+  delete b.dataset.arm; b.textContent = "삭제";
+  if (e.local) { LOGS.local = LOGS.local.filter(x => x !== e); closeLog(); renderLogSel(); return; }
+  try { await LOGS.be.removeLog(e); logInfo("기록을 지웠습니다."); } catch (er) { logInfo(`지우지 못했습니다 (${er.message || er.code}).`); }
+};
+window.addEventListener("keydown", e => {
+  if ($("pageLog").hidden || ["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName) && e.target.id !== "logSeek") return;
+  if (e.key === " ") { e.preventDefault(); $("logPlay").click(); }
+  else if (e.key === "ArrowLeft" || e.key === "ArrowRight") { if (!LOGP.T) return; e.preventDefault(); LOGP.t = Math.max(0, Math.min(LOGP.dur, LOGP.t + (e.key === "ArrowLeft" ? -2000 : 2000))); logPose(); logUI(); }
+});
+// 시점: 드래그 = 이동, 휠 = 확대 (따라가기 중 드래그하면 따라가기 해제)
+let ldown = null;
+const lPt = e => { const r = lcv.getBoundingClientRect(); return [(e.clientX - r.left) * lcv.width / r.width, (e.clientY - r.top) * lcv.height / r.height]; };
+lcv.addEventListener("pointerdown", e => { lcv.setPointerCapture(e.pointerId); const [px, py] = lPt(e); ldown = { px, py }; if (e.button === 1) e.preventDefault(); });
+lcv.addEventListener("pointermove", e => { if (!ldown) return; const [px, py] = lPt(e), c = LOGP.cam;
+  c.x -= (px - ldown.px) / c.s; c.y += (py - ldown.py) / c.s; ldown.px = px; ldown.py = py; if (LOGP.follow) { LOGP.follow = null; renderLegend(); } });
+const lEnd = () => { ldown = null; }; lcv.addEventListener("pointerup", lEnd); lcv.addEventListener("pointercancel", lEnd);
+lcv.addEventListener("wheel", e => { e.preventDefault(); const c = LOGP.cam, [px, py] = lPt(e);
+  const w = (q, r) => [c.x + (q - lcv.width / 2) / c.s, c.y - (r - lcv.height / 2) / c.s], [wx, wy] = w(px, py);
+  c.s = clamp(c.s * Math.exp(-(e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY) * 0.0015), 0.05, 200);
+  if (!LOGP.follow) { const [wx2, wy2] = w(px, py); c.x += wx - wx2; c.y += wy - wy2; } }, { passive: false });
+
 async function initSim() {
   MAPS_READY = fetch(new URL("maps.json", location.href)).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
   try { MAPS = await MAPS_READY; } catch (e) { $("simMsg").hidden = false; $("simMsg").textContent = "맵 파일(maps.json)을 불러오지 못했습니다."; MAPS = []; }
@@ -2493,8 +2781,8 @@ async function initSim() {
 if (fresh) makeDefault();
 buildBody(); setWires(showWires); loadColors(); changed(true);
 let tab = "vehicle"; try { tab = localStorage.getItem("irsim.tab") || "vehicle"; } catch (e) {}
-if (location.hash === "#sim") tab = "sim"; if (location.hash === "#vehicle") tab = "vehicle";
-if (tab !== "sim") tab = "vehicle";
+if (location.hash === "#sim") tab = "sim"; if (location.hash === "#vehicle") tab = "vehicle"; if (location.hash === "#log") tab = "log";
+if (tab !== "sim" && tab !== "log") tab = "vehicle";
 showTab(tab);
 requestAnimationFrame(() => { resize(); fit(); });
 histReset();
