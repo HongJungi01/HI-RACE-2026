@@ -145,6 +145,7 @@ textarea { min-height: 160px; resize: vertical; line-height: 1.4; }
 .carrow .nm { font-weight: 600; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .carrow .meta { grid-area: meta; font-size: 11.5px; color: var(--muted); display: flex; gap: 8px; flex-wrap: wrap; }
 .carrow .meta .dirty { color: var(--warn); }
+#dpCode.dummy #codeEditor, #dpCode.dummy #codeOut, #dpCode.dummy .dd-tools button, #dpCode.dummy .dd-tools label, #dpCode.dummy #copyMenu { display: none !important; }
 .carrow .meta .bad { color: var(--err); }
 .carrow .ctl { grid-area: ctl; display: flex; gap: 4px; }
 .carrow .ctl button { padding: 3px 8px; min-width: 32px; white-space: nowrap; }
@@ -651,6 +652,7 @@ div.CodeMirror-selected, .CodeMirror-focused div.CodeMirror-selected { backgroun
       <div class="card-h"><h2>차량 불러오기</h2><span class="sub" id="carCount"></span></div>
       <div class="parts">
         <div class="part" id="addSample" role="button" tabindex="0" style="grid-column:1/-1"><b><i style="background:var(--car1)"></i>샘플 차량</b><span>기본 차량(앞 11ch · 뒤 5ch, 회로도 배선) + P 제어 샘플 코드</span></div>
+        <div class="part" id="addDummy" role="button" tabindex="0" style="grid-column:1/-1"><b><i style="background:var(--muted)"></i>더미 차량 (코드 없음)</b><span>Mega 없이 맵의 선을 바로 따라가는 테스트용 차. 출발 위치에서 가장 가까운 선 · 속도 고정</span></div>
         <div class="part" id="addFromTab1" role="button" tabindex="0"><b><i style="background:var(--accent)"></i>탭 1 차량</b><span>지금 탭 1에 있는 배치·배선 그대로</span></div>
         <label class="part" for="addFromFile" tabindex="0"><b><i style="background:var(--muted)"></i>JSON 파일</b><span>탭 1에서 저장한 차량 설정</span><input id="addFromFile" type="file" accept=".json,application/json" hidden></label>
       </div>
@@ -1741,12 +1743,12 @@ function carConfig(car) {
 // ---- 저장 ----
 function simSave() {
   try { localStorage.setItem(SIM_STORE, JSON.stringify({ mapId: SIM.mapId, speed: SIM.speed,
-    cars: SIM.cars.map(c => ({ name: c.name, color: c.color, design: c.design, code: c.code, start: c.start, ...(c.locked ? { locked: true, hex: c.hex } : {}) })) })); } catch (e) {}
+    cars: SIM.cars.map(c => ({ name: c.name, color: c.color, design: c.design, code: c.code, start: c.start, ...(c.locked ? { locked: true, hex: c.hex } : {}), ...(c.kind === "dummy" ? { kind: "dummy", dSpeed: c.dSpeed } : {}) })) })); } catch (e) {}
 }
 function simLoad() {
   try { const j = JSON.parse(localStorage.getItem(SIM_STORE) || "null"); if (!j) return false;
     SIM.mapId = j.mapId || SIM.mapId; SIM.speed = j.speed || 1;
-    for (const c of j.cars || []) addCar(c.design, { name: c.name, color: c.color, code: c.code, start: c.start, locked: c.locked, hex: c.hex, quiet: true });
+    for (const c of j.cars || []) addCar(c.design, { name: c.name, color: c.color, code: c.code, start: c.start, locked: c.locked, hex: c.hex, kind: c.kind, dSpeed: c.dSpeed, quiet: true });
     return true; } catch (e) { return false; }
 }
 
@@ -1779,6 +1781,7 @@ function addCar(design, o = {}) {
   const id = simSeq++, car = { id, name: o.name || `${id}번 차`, color: o.color || CAR_COLORS.find(k => !used.has(k)) || "car1", design, code: o.code ?? SAMPLE_CODE,
     start: o.start || startSlot(SIM.cars.length), status: "stopped", worker: null, busy: false, hex: null, hexSrc: null, serial: [], serialTail: "", trail: [], err: "", hit: false };
   if (o.locked && o.hex) { car.locked = true; car.code = LOCKED_CODE; car.hex = o.hex; car.hexSrc = car.code; }   // 비공개 코드 차: 컴파일된 hex로만 주행
+  if (o.kind === "dummy") { car.kind = "dummy"; car.code = ""; car.dSpeed = o.dSpeed ?? 80; }                    // 더미: 코드 없이 맵 선 추종
   car.pose = { ...car.start, v: 0, delta: 0, servo: 110, pwm: 0, t: 0 };
   car.cfg = carConfig(car);
   SIM.cars.push(car); SIM.sel = id;
@@ -1813,6 +1816,7 @@ const errLines = log => [...log.join("\n").matchAll(/sketch\.ino:(\d+):\d+: erro
 async function runCar(car) {
   if (car.status === "running" || car.status === "compiling" || car.status === "starting") return;
   if (car.status === "paused") { car.status = "running"; renderSimUI(); return; }
+  if (car.kind === "dummy") { dummyStart(car); return; }
   if (car.hexSrc !== car.code) {
     car.status = "compiling"; renderSimUI();
     const r = await compileCode(car.code);
@@ -1854,10 +1858,57 @@ function onCarMsg(car, d) {
     if (m) { let s = m.querySelector(".ser"); if (!s) { s = document.createElement("span"); s.className = "ser"; m.append(s); } s.textContent = `Serial ${car.serial.length}줄`; }
   }
 }
+// ---- 더미 차량: Mega·워커 없이 메인에서 계산 (CPU 거의 안 씀) ----
+// 입력은 속도 하나. 출발 때 맵에서 차 앞축에 가장 가까운 주행선(노란 경계선·바닥과 같은 색 제외, 닫힌 선 우선)을 골라
+// Stanley 방식(앞축이 선 위에 오게: 조향 = 방향 오차 + atan(k·횡오차 / 속도))으로 따라감.
+// 기구학 자전거 모델이라 미끄러짐 없음. 2 ms 하위 스텝, 가까운 점은 지난 위치 근처만 찾음
+const DUMMY_ACC = 300, DUMMY_DEC = 600, DUMMY_K = 3, DUMMY_MAXSTEER = 0.6;   // [cm/s²], [1/s], [rad]
+function dummyStart(car) {
+  const m = curMap(); if (!m) return;
+  car.cfg = carConfig(car); car.trail = []; car.hit = false;
+  const L = car.cfg.body.L, p = car.start, fx = p.x + L * Math.cos(p.yaw), fy = p.y + L * Math.sin(p.yaw);
+  const cand = m.lines.filter(l => Math.abs(l.ir - m.floorIR) > 0.3 && !/^#f2c2/i.test(l.color));
+  const pick = ls => { let best = null; for (const l of ls) l.pts.forEach(([x, y], i) => { const d = (x - fx) ** 2 + (y - fy) ** 2; if (!best || d < best.d) best = { l, i, d }; }); return best; };
+  const b = pick(cand.filter(l => l.closed)) || pick(cand);
+  if (!b) { car.status = "error"; car.err = "따라갈 선이 맵에 없습니다."; renderSimUI(); return; }
+  const P = b.l.pts, n = P.length, i1 = Math.min(n - 1, b.i + 1), i0 = Math.max(0, b.i - 1);
+  const tx = P[i1][0] - P[i0][0], ty = P[i1][1] - P[i0][1];
+  car.dum = { P, n, closed: b.l.closed, i: b.i, dir: tx * Math.cos(p.yaw) + ty * Math.sin(p.yaw) >= 0 ? 1 : -1, v: 0, t: 0 };
+  car.pose = { ...car.start, v: 0, delta: 0, servo: 110, pwm: 0, t: 0 };
+  car.status = "running"; renderSimUI();
+}
+function dummyStep(car, ms) {
+  const D = car.dum; if (!D) return;
+  const L = car.cfg.body.L, prev = car.pose, P = D.P, n = D.n;
+  let { x, y, yaw } = prev, v = D.v, delta = prev.delta || 0;
+  const wrap = k => D.closed ? ((k % n) + n) % n : Math.max(0, Math.min(n - 1, k));
+  const dt = 0.002;
+  for (let t = 0; t < ms; t += 2) {
+    const c = Math.cos(yaw), s = Math.sin(yaw), fx = x + L * c, fy = y + L * s;
+    let bi = D.i, bd = Infinity;                               // 앞축에 가장 가까운 선 위 점 (지난 위치에서 뒤 5 ~ 앞 30점)
+    for (let k = -5; k <= 30; k++) { const q = P[wrap(D.i + D.dir * k)], d = (q[0] - fx) ** 2 + (q[1] - fy) ** 2; if (d < bd) { bd = d; bi = D.i + D.dir * k; } }
+    D.i = wrap(bi);
+    const a = P[D.i], b2 = P[wrap(D.i + D.dir)];
+    let tx = b2[0] - a[0], ty = b2[1] - a[1]; const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+    const e = (fy - a[1]) * tx - (fx - a[0]) * ty;            // 횡오차 [cm], 선 진행 방향 기준 왼쪽 +
+    let he = Math.atan2(ty, tx) - yaw; he = Math.atan2(Math.sin(he), Math.cos(he));
+    delta = Math.max(-DUMMY_MAXSTEER, Math.min(DUMMY_MAXSTEER, he + Math.atan2(-DUMMY_K * e, Math.abs(v) + 5)));
+    const ended = !D.closed && (D.i === 0 || D.i === n - 1);
+    const tv = ended ? 0 : car.dSpeed;
+    v = tv > v ? Math.min(tv, v + DUMMY_ACC * dt) : Math.max(tv, v - DUMMY_DEC * dt);
+    x += v * c * dt; y += v * s * dt; yaw += v / L * Math.tan(delta) * dt;
+  }
+  D.v = v; D.t += ms / 1000;
+  car.pose = { x, y, yaw, v, delta, servo: 110 - delta / D2R, pwm: 0, t: D.t };
+  car.hit = false;                                           // 충돌하면 이번 이동을 되돌리고 멈춤 (Mega 차와 같은 규칙)
+  for (const o of SIM.cars) if (o !== car && polysOverlap(footWorld(car, car.pose), footWorld(o, o.pose))) { car.hit = true; break; }
+  if (car.hit) { car.pose = { ...car.pose, x: prev.x, y: prev.y, yaw: prev.yaw, v: 0 }; D.v = 0; }
+  else { const lp = car.trail.at(-1); if (!lp || Math.hypot(x - lp[0], y - lp[1]) > 1) { car.trail.push([x, y]); if (car.trail.length > TRAIL_MAX) car.trail.splice(0, car.trail.length - TRAIL_MAX); } }
+}
 function pauseCar(car) { if (car.status === "running") { car.status = "paused"; renderSimUI(); } }
 function stopCar(car) {
   if (car.status === "stopped") return;
-  car.status = "stopped"; car.busy = false; car.hit = false; car.forcePose = null;
+  car.status = "stopped"; car.busy = false; car.hit = false; car.forcePose = null; car.dum = null;
   car.pose = { ...car.start, v: 0, delta: 0, servo: 110, pwm: 0, t: 0 }; car.trail = [];
   if (car.worker) { car.worker.terminate(); car.worker = null; }       // 다음 실행 때 새로 시작 (MCU 리셋)
   renderSimUI();
@@ -1885,14 +1936,15 @@ const rtfWin = { sim: 0, wall: 0 };
 function simFrame(now) {
   const dt = Math.min(50, now - simLast); simLast = now;
   if (!$("pageSim").hidden) {
-    const run = SIM.cars.filter(c => c.status === "running" && c.worker);
-    const waiting = run.some(c => c.busy && now - (c.busySince || 0) < 2000);   // 2 s 넘게 응답 없는 워커는 기다리지 않음
+    const run = SIM.cars.filter(c => c.status === "running" && (c.worker || c.kind === "dummy"));
+    const waiting = run.some(c => c.worker && c.busy && now - (c.busySince || 0) < 2000);   // 2 s 넘게 응답 없는 워커는 기다리지 않음
     simAcc = Math.min(simAcc + dt * SIM.speed, 100);
     if (run.length && !waiting) {
       const n = Math.floor(simAcc);
       if (n > 0) {
         simAcc -= n; rtfWin.sim += n;
         for (const car of run) {
+          if (car.kind === "dummy") { dummyStep(car, n); continue; }   // 더미는 메인에서 바로 계산
           const others = [];
           for (const o of SIM.cars) if (o !== car) { const F = footWorld(o, o.pose); for (let i = 0; i < 4; i++) others.push([...F[i], ...F[(i + 1) % 4]]); }
           car.busy = true; car.busySince = now;
@@ -2067,6 +2119,7 @@ function renderSimUI() { renderCarList(); renderSel(); renderDock(); $("carCount
   $("simMsg").hidden = SIM.cars.length > 0; $("simMsg").textContent = "오른쪽 '차량 불러오기'에서 차를 올리세요."; }
 // 코드 상태 한 줄: 컴파일 여부·수정 여부
 function codeState(car) {
+  if (car.kind === "dummy") return [`더미 · 코드 없음 · ${car.dSpeed} cm/s`, ""];
   if (car.locked) return ["🔒 코드 비공개 · 주행만 가능", ""];
   if (car.err && car.status === "error") return [`컴파일·실행 오류`, "bad"];
   if (!car.hex) return ["아직 컴파일 안 함", ""];
@@ -2111,23 +2164,26 @@ function renderSel() {
     <div class="fld three"><label for="ssX">출발 x [cm]<input id="ssX" type="number" step="0.5" value="${+car.start.x.toFixed(1)}"${stopped ? "" : " disabled"}></label>
       <label for="ssY">출발 y [cm]<input id="ssY" type="number" step="0.5" value="${+car.start.y.toFixed(1)}"${stopped ? "" : " disabled"}></label>
       <label for="ssW">출발 yaw [°]<input id="ssW" type="number" step="5" value="${norm(Math.round(car.start.yaw / D2R))}"${stopped ? "" : " disabled"}></label></div>
+    ${car.kind === "dummy" ? `<div class="fld"><label for="ssDv">더미 속도 [cm/s]<input id="ssDv" type="number" step="10" min="0" max="300" value="${car.dSpeed}"></label><p class="sub" style="align-self:end">코드 없이 출발 위치에서 가장 가까운 선을 따라감. 실행 중에도 바꿀 수 있음</p></div>` : ""}
     ${dipComp(car) ? `<div><span class="sub">${TYPES[dipComp(car).type].name} (ON = LOW, 코드가 setup에서 읽으면 정지 후 다시 실행해야 반영)</span><div class="row" style="gap:6px;margin-top:4px;flex-wrap:wrap">${Array.from({ length: SWN[dipComp(car).type] }, (_, i) => `<button type="button" class="${dipComp(car).sw?.[i] ? "on" : ""}" data-simdip="${i}" aria-pressed="${!!dipComp(car).sw?.[i]}">${swName(dipComp(car), i)} ${dipComp(car).sw?.[i] ? "ON" : "OFF"}</button>`).join("")}</div></div>` : ""}
     <p class="sub" id="ssLive"></p>
-    <div class="sel-actions"><button type="button" id="ssLayout">레이아웃 수정</button><button type="button" id="ssCode">코드 열기</button></div>`;
+    <div class="sel-actions">${car.kind === "dummy" ? "" : `<button type="button" id="ssLayout">레이아웃 수정</button><button type="button" id="ssCode">코드 열기</button>`}</div>`;
   $("ssName").oninput = e => { car.name = e.target.value || `${car.id}번 차`; $("sselTitle").textContent = car.name; renderCarList(); renderDockHead(); simSave(); };
   body.querySelectorAll("[data-col]").forEach(b => b.onclick = () => { car.color = b.dataset.col; simSave(); renderSimUI(); });
   for (const [id, k, f] of [["ssX", "x", v => v], ["ssY", "y", v => v], ["ssW", "yaw", v => v * D2R]]) $(id).onchange = e => { const v = parseFloat(e.target.value); if (Number.isFinite(v) && car.status === "stopped" && Math.abs(f(v) - car.start[k]) > 1e-9) { poseMark(car); car.start[k] = f(v); car.pose = { ...car.pose, ...car.start }; simSave(); } };
   body.querySelectorAll("[data-simdip]").forEach(b => b.onclick = () => {
     const d = dipComp(car); d.sw = Array.from({ length: SWN[d.type] }, (_, i) => (d.sw || [])[i] ? 1 : 0); d.sw[+b.dataset.simdip] ^= 1;
     car.cfg = carConfig(car); car.worker?.postMessage({ type: "dip", dip: car.cfg.dip }); simSave(); renderSel(); });
-  $("ssLayout").onclick = () => startLayoutEdit(car);
-  $("ssCode").onclick = () => { setDock("code"); $("dockDetail").scrollIntoView({ behavior: "smooth", block: "nearest" }); };
+  if ($("ssDv")) $("ssDv").onchange = e => { const v = parseFloat(e.target.value); if (Number.isFinite(v)) { car.dSpeed = Math.max(0, Math.min(300, v)); simSave(); renderCarList(); } };
+  if ($("ssLayout")) $("ssLayout").onclick = () => startLayoutEdit(car);
+  if ($("ssCode")) $("ssCode").onclick = () => { setDock("code"); $("dockDetail").scrollIntoView({ behavior: "smooth", block: "nearest" }); };
 }
 function tickSimUI() {                                        // 매 프레임 바뀌는 값만 갱신
   const car = selCar(); if (!car) return;
   const el = $("ssLive"); if (!el) return;
   const p = car.pose;
   el.textContent = car.status === "stopped" ? "정지 상태 · 보드에서 드래그해 출발 위치를 옮길 수 있습니다." :
+    car.kind === "dummy" ? `더미 · ${(p.t || 0).toFixed(1)} s · ${(p.v || 0).toFixed(0)} cm/s · 조향 ${((p.delta || 0) / D2R).toFixed(0)}°${car.hit ? " · 충돌" : ""}` :
     `MCU ${(p.t || 0).toFixed(1)} s · ${(p.v || 0).toFixed(0)} cm/s · 서보 ${(p.servo || 0).toFixed(0)}° · PWM ${p.pwm || 0}${p.slip ? (p.slip === 2 ? " · 뒤 미끄러짐" : " · 앞 미끄러짐") : ""}${car.hit ? " · 충돌" : ""}`;
 }
 
@@ -2155,6 +2211,8 @@ function renderDock() {
   if (car && SIM.dock === "serial") car.serialUnread = 0;
   renderDockHead();
   if (!car) return;
+  $("dpCode").classList.toggle("dummy", car.kind === "dummy");
+  if (SIM.dock === "code" && car.kind === "dummy") { $("codeFor").textContent = `${car.name}은(는) 더미 차량이라 코드가 없습니다. 맵의 선을 ${car.dSpeed} cm/s로 따라갑니다 (속도는 오른쪽 패널).`; return; }
   if (SIM.dock === "code") {
     $("codeFor").textContent = `${car.name}에 올라갈 스케치 · Mega 2560 · ▶ 실행 때 자동 컴파일`;
     ensureEditor(); showEditorFor(car); showCodeResult(car);
@@ -2203,7 +2261,7 @@ function renderSerial() {
   const car = selCar(), el = $("serialOut"); if (!car) return;
   $("serialFor").textContent = `${car.name}의 Serial 출력 · 115200`;
   const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
-  el.textContent = car.serial.join("\n") + (car.serialTail ? "\n" + car.serialTail : "") || "(아직 출력 없음)";
+  el.textContent = car.kind === "dummy" ? "(더미 차량은 Serial 출력이 없습니다)" : car.serial.join("\n") + (car.serialTail ? "\n" + car.serialTail : "") || "(아직 출력 없음)";
   if (atBottom) el.scrollTop = el.scrollHeight;
 }
 $("dtCode").onclick = () => setDock("code"); $("dtSerial").onclick = () => setDock("serial");
@@ -2225,7 +2283,7 @@ $("codeCopy").onclick = () => {
   const car = selCar(), menu = $("copyMenu"); if (!car) return;
   if (!menu.hidden && menu.dataset.kind === "copy") { menu.hidden = true; return; }
   menu.dataset.kind = "copy";
-  const others = SIM.cars.filter(c => c !== car && !c.locked);
+  const others = SIM.cars.filter(c => c !== car && !c.locked && c.kind !== "dummy");
   menu.innerHTML = others.length ? `<span class="sub">${esc(car.name)}의 코드를 덮어씁니다:</span>` + others.map(o => `<button type="button" data-from="${o.id}" style="--cc:var(--${o.color})"><span class="dot"></span>${esc(o.name)} 코드</button>`).join("") + `<button type="button" data-from="x">닫기</button>`
     : `<span class="sub">다른 차가 없습니다.</span><button type="button" data-from="x">닫기</button>`;
   menu.hidden = false;
@@ -2251,6 +2309,8 @@ $("viewFit").onclick = fitSim;
 const addTab1 = () => { if (editingCar) { $("addMsg").textContent = "탭 1에서 레이아웃 편집을 먼저 끝내세요."; return; } const c = addCar(toJSON()); if (c) $("addMsg").textContent = `${c.name}을(를) 올렸습니다.`; };
 const sampleDesign = () => { const old = S; try { makeDefault(); return toJSON(); } finally { S = old; } };
 const addSample = () => { const c = addCar(sampleDesign(), { code: SAMPLE_CODE }); if (c) { c.name = `샘플 ${c.id}`; simSave(); renderSimUI(); $("addMsg").textContent = `${c.name}을(를) 올렸습니다 (탭 1과 상관없는 기본 차량).`; } };
+const addDummy = () => { const c = addCar(sampleDesign(), { kind: "dummy" }); if (c) { c.name = `더미 ${c.id}`; simSave(); renderSimUI(); $("addMsg").textContent = `${c.name}을(를) 올렸습니다. 코드 없이 선을 따라가며, 속도는 선택한 차 패널에서 바꿉니다.`; } };
+$("addDummy").onclick = addDummy; $("addDummy").onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); addDummy(); } };
 $("addSample").onclick = addSample; $("addSample").onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); addSample(); } };
 $("addFromTab1").onclick = addTab1; $("addFromTab1").onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); addTab1(); } };
 $("addFromFile").onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader();
@@ -2399,6 +2459,7 @@ $("garageUpload").onclick = async () => {
   const car = selCar(); if (!car || !GARAGE.be?.canWrite) { gInfo("올릴 차를 먼저 선택하세요."); return; }
   const name = (car.name.trim() || "내 차").slice(0, 40), had = GARAGE.entries.some(e => e.uid === GARAGE.uid && e.name === name);
   if (car.locked) { gInfo("비공개 코드로 받은 차는 다시 올릴 수 없습니다. 내 코드로 바꾼 뒤 올리세요."); return; }
+  if (car.kind === "dummy") { gInfo("더미 차량은 코드가 없어 공유 차고에 올리지 않습니다."); return; }
   const priv = !!GARAGE.be.supportsPrivate && $("garagePrivate").checked;
   const entry = { id: "c" + Date.now().toString(36), name, note: "", design: car.design, code: car.code, codePrivate: priv, updatedAt: Date.now() };
   if (priv) {                                                  // 비공개: 지금 코드를 컴파일한 펌웨어를 같이 올림
