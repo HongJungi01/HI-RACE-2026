@@ -1982,13 +1982,12 @@ const ccol = k => colors[k] || getComputedStyle(document.documentElement).getPro
 function drawSim() {
   simResize();
   const W = scv.width, H = scv.height, k = dpr(), g = sctx; if (!W) return;
-  g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = colors.field; g.fillRect(0, 0, W, H);
   const m = curMap();
+  g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = m ? m.floor : colors.field; g.fillRect(0, 0, W, H);   // 바닥색으로 화면 전체를 채움 (확대해도 맵 바깥이 잘려 보이지 않게)
   const fc = SIM.cars.find(c => c.id === SIM.follow); if (fc) { scam.x = fc.pose.x; scam.y = fc.pose.y; }
   const world = () => g.setTransform(scam.s, 0, 0, -scam.s, W / 2 - scam.x * scam.s, H / 2 + scam.y * scam.s);
   if (m) {
     world();
-    const [x0, y0, x1, y1] = m.bounds; g.fillStyle = m.floor; g.fillRect(x0, y0, x1 - x0, y1 - y0);
     g.lineWidth = m.lineWidth; g.lineJoin = "round"; g.lineCap = "butt";
     for (const { p, color } of pathsFor(m)) { g.strokeStyle = color; g.stroke(p); }
     // 출발선
