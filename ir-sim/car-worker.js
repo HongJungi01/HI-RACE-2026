@@ -1,5 +1,6 @@
 // 차량 1대 시뮬레이션 워커 (모듈 워커)
 // ATmega2560 에뮬레이션(avr8js) + 차량 모델(기구학 자전거) + 엔코더 + IR(맵 선 벡터 샘플링) + 초음파(레이 모델, 상대 차량 외곽)
+// + LIDAR-Lite v3HP (I2C 슬레이브: 하드웨어 TWI D20/D21 또는 아무 핀 비트뱅, PWM 모드 핀, 전원 EN 핀)
 // 단위: 위치 cm, 각도 rad (메시지의 yaw도 rad), 맵 좌표 cm
 import * as A from "./avr8js.js";
 
@@ -34,7 +35,8 @@ function megaConfig() {
   const adc = { ...A.adcConfig, adcInterrupt: v(29), numChannels: 16, muxInputMask: 0x3f, muxChannels: ch,
     adcReferences: [A.ADCReference.AREF, A.ADCReference.AVCC, A.ADCReference.Internal1V1, A.ADCReference.Internal2V56] };
   const usart = { ...A.usart0Config, rxCompleteInterrupt: v(25), dataRegisterEmptyInterrupt: v(26), txCompleteInterrupt: v(27) };
-  return { ports, timers, adc, usart };
+  const twi = { ...A.twiConfig, twiInterrupt: v(39) };                   // Mega TWI_vect = 39 (레지스터 주소는 328P와 같음)
+  return { ports, timers, adc, usart, twi };
 }
 function loadHex(text, out) {
   let base = 0, n = 0;
@@ -57,6 +59,7 @@ class Mega {
     this.port = {}; for (const k in C.ports) this.port[k] = new A.AVRIOPort(this.cpu, C.ports[k]);
     this.usart = new A.AVRUSART(this.cpu, C.usart, 16e6);
     this.adc = new A.AVRADC(this.cpu, C.adc);
+    this.twi = new A.AVRTWI(this.cpu, C.twi, 16e6);              // Wire 라이브러리(D20 SDA / D21 SCL)
     this.events = [];
     // 타이머는 다음 비교 일치·오버플로 시점에만 깨어나므로(avr8js.js 패치), 타이머 설정·OCR을 쓰기 전에 지금까지의 틱을 먼저 세고
     // 쓴 뒤에 다음 깨어날 시점을 다시 잡음
@@ -78,6 +81,7 @@ class Mega {
   }
   setPin(n, hi) { const [p, b] = PINMAP[n]; this.port[p].setPin(b, hi); }
   getPin(n) { const [p, b] = PINMAP[n]; return this.port[p].pinState(b) === A.PinState.High; }
+  drivenLow(n) { const [p, b] = PINMAP[n]; return this.port[p].pinState(b) === A.PinState.Low; }   // Mega가 출력 LOW로 끌어내림
   at(cycle, fn) { this.events.push({ cycle, fn }); }
   runTo(end) {
     const cpu = this.cpu;
@@ -158,8 +162,190 @@ function usMeasure(sx, sy, heading, segs) {
   return null;
 }
 
+
+// ---------------- LIDAR-Lite v3HP 모델 ----------------
+// 사양 (Garmin LIDAR-Lite v3HP Operation Manual): 40 m (70 % 반사 타깃), 분해능 1 cm, 정확도 2 m 미만 ±5 cm (1 m 미만 비선형) /
+// 2 m 이상 ±2.5 cm, 평균 오차 최대 ±1 % 거리, 빔 발산 8 mrad, 레이저 출구 12 × 2 mm, 1 kHz 이상 (획득 횟수 작으면 1.5 kHz),
+// 신호 없으면 1 cm 보고, 최대 거리 ∝ n^(1/4) (n = SIG_COUNT_VAL), 전원 인가 후 약 22 ms 뒤부터 측정 가능.
+// I2C 0x62, 레지스터 포인터 자동 증가. PWM: MODE 선을 LOW로 당기면 측정, 끝나면 10 µs/cm HIGH 펄스, 계속 LOW면 반복
+const LL_ADDR = 0x62, LL_BOOT_MS = 22, LL_RAYS = 7;
+function rayHit(ox, oy, a, segs) {                           // 반직선과 선분들의 첫 교점 → [거리, 입사각 cos]
+  const dx = Math.cos(a), dy = Math.sin(a); let tb = Infinity, cs = 0;
+  for (const [ax, ay, bx, by] of segs) {
+    const ex = bx - ax, ey = by - ay, den = dx * ey - dy * ex; if (Math.abs(den) < 1e-9) continue;
+    const t = ((ax - ox) * ey - (ay - oy) * ex) / den, u = ((ax - ox) * dy - (ay - oy) * dx) / den;
+    if (t > 0.05 && u >= 0 && u <= 1 && t < tb) { tb = t; cs = Math.abs(dx * ey - dy * ex) / Math.hypot(ex, ey); }
+  }
+  return tb < Infinity ? [tb, cs] : null;
+}
+// 빔 = 출구 폭 1.2 cm에 걸친 레이 7개, 바깥 레이는 발산 ±4 mrad. 반환 세기 ∝ 반사율·cos(입사각)/거리², 레이 평균
+// 거리 = 깊이 8 cm 안에서 묶은 반사 중 세기 합이 가장 큰 묶음의 세기 가중 평균 (모서리에 걸치면 섞인 값)
+function lidarRaw(sx, sy, h, segs, n, refl) {
+  if (!segs.length) return null;
+  const hits = [], nx = -Math.sin(h), ny = Math.cos(h);
+  for (let i = 0; i < LL_RAYS; i++) { const f = i / (LL_RAYS - 1) * 2 - 1, r = rayHit(sx + nx * f * 0.6, sy + ny * f * 0.6, h + f * 0.004, segs);
+    if (r) hits.push({ t: r[0], s: refl * r[1] / Math.max(r[0] / 100, 0.05) ** 2 }); }
+  if (!hits.length) return null;
+  hits.sort((a, b) => a.t - b.t);
+  let best = null;
+  for (let i = 0; i < hits.length;) { let j = i, s = 0, ts = 0; while (j < hits.length && hits[j].t - hits[i].t < 8) { s += hits[j].s; ts += hits[j].t * hits[j].s; j++; }
+    if (!best || s > best.s) best = { s, d: ts / s }; i = j; }
+  const S = best.s / LL_RAYS, rmax = 40 * Math.pow(Math.max(1, n) / 255, 0.25), thr = 0.7 / (rmax * rmax);
+  return S >= thr ? { d: best.d, S, thr } : null;
+}
+// 센서별 오차 (실행마다 새로 뽑음): 오프셋, 거리 비례 오차(최대 ±1 %), 1 m 미만 비선형 방향
+function lidarErr(L, d, P) {
+  const near = d < 100 ? L.nearK * (P.llNear ?? 5) * (1 - d / 100) ** 2 : 0;
+  const sig = (P.llNoise ?? 1) * (d < 200 ? 1.5 : 1);
+  return Math.max(1, Math.round(d * (1 + L.scale) + L.bias + near + randn() * sig));
+}
+function llDefaults(L) {
+  L.regs.fill(0); L.regs[0x02] = 0xff; L.regs[0x04] = 0x08; L.regs[0x12] = 0x03;
+  L.dist = 1; L.peak = false; L.sig = 0; L.ptr = 0; L.first = false; L.busyUntil = 0; L.pend = null;
+}
+function newLidar(u) {
+  const P = cfg.params, uni = () => Math.random() * 2 - 1;
+  const L = { u, regs: new Uint8Array(128), unit: (Math.random() * 65536) | 0, power: true, bootUntil: LL_BOOT_MS * 16000,
+    bias: uni() * (P.llBias ?? 2), scale: uni() * 0.005, nearK: uni(), pulse: false, mon: false };
+  llDefaults(L); return L;
+}
+function lidarPose(ui) {
+  const u = cfg.us[ui], co = Math.cos(veh.yaw), si = Math.sin(veh.yaw);
+  const h = veh.yaw + u.yaw + (usServo[ui] ? (usServo[ui].ang - 90) * D2R : 0);
+  return [veh.x + u.x * co - u.y * si + (u.off || 0) * Math.cos(h), veh.y + u.x * si + u.y * co + (u.off || 0) * Math.sin(h), h];
+}
+const llReady = L => L.power && mega.cpu.cycles >= L.bootUntil;
+function llBusy(L) { llFinish(L); return mega.cpu.cycles < L.busyUntil; }
+function llFinish(L) {                                       // 측정 결과는 끝난 시각에 레지스터로 (그 전에는 이전 값 유지)
+  if (!L.pend || mega.cpu.cycles < L.busyUntil) return;
+  const r = L.pend; L.pend = null; L.dist = r.dist; L.peak = r.peak; L.sig = r.sig;
+  usLast[L.idx] = { d: r.peak ? r.dist : null, c: mega.cpu.cycles, lidar: true };
+}
+// 측정 시작: 지금 자세로 거리 계산, 결과는 측정 시간 뒤 반영. 측정 시간 = 기본 + 획득 1회 × 사용한 획득 횟수
+// (강한 반사는 상관 피크가 일찍 포화돼 횟수가 줄고, 빠른 종료(0x04 bit3 = 0)면 더 줄어듦. 1 kHz 이상 / 최대 1.5 kHz 사양에 맞춘 가정값)
+function llStart(L, onDone) {
+  llFinish(L); if (!llReady(L) || mega.cpu.cycles < L.busyUntil) return false;
+  const P = cfg.params, n = L.regs[0x02] || 1, [sx, sy, h] = lidarPose(L.idx);
+  const rx = !(L.regs[0x65] & 1) ? lidarRaw(sx, sy, h, others, n, (P.llRefl ?? 70) / 100) : null;
+  let used = n;
+  if (rx) { used = Math.min(n, Math.max(8, Math.round(n * rx.thr * 400 / rx.S))); if (!(L.regs[0x04] & 0x08)) used = Math.max(4, used >> 1); }
+  const ms = (P.llT0 ?? 0.6) + used * (P.llTacq ?? 2) / 1000;
+  L.pend = rx ? { dist: Math.min(4000, lidarErr(L, rx.d, P)), peak: true, sig: Math.min(255, Math.round(30 + 40 * Math.log10(rx.S / rx.thr))) } : { dist: 1, peak: false, sig: 0 };
+  L.busyUntil = mega.cpu.cycles + Math.round(ms * 16000);
+  mega.at(L.busyUntil, () => { llFinish(L); onDone?.(); });
+  return true;
+}
+// I2C 슬레이브 동작 (하드웨어 TWI와 비트뱅이 같이 씀)
+function llAddr(L, a7, rd) {
+  if (!llReady(L)) return false;
+  const c = L.regs[0x1e], hit = (!(c & 8) && a7 === LL_ADDR) || ((c & 16) && a7 === (L.regs[0x1a] >> 1) && a7 !== 0);
+  if (hit && !rd) L.first = true;
+  return hit;
+}
+function llWrite(L, b) {
+  if (L.first) { L.ptr = b & 0x7f; L.first = false; return; }
+  const a = L.ptr; L.ptr = (L.ptr + 1) & 0x7f;
+  if (a === 0x00) {
+    if (b === 0) {                                            // 0 = 하드 리셋 (0x06 bit0로 허용한 경우만), 0이 아니면 측정 시작
+      if (L.regs[0x06] & 1) { llDefaults(L); L.bootUntil = mega.cpu.cycles + LL_BOOT_MS * 16000; }
+      return;
+    }
+    llStart(L, () => pwmAfter(L)); return;
+  }
+  if (a === 0x1e && (b & 16) && !((L.regs[0x18] << 8 | L.regs[0x19]) === L.unit)) b &= ~16;   // 시리얼 번호 확인 후에만 보조 주소 허용
+  if (![0x01, 0x0e, 0x0f, 0x10, 0x16, 0x17, 0x48].includes(a)) L.regs[a] = b;
+}
+function llRead(L) {
+  const a = L.ptr; L.ptr = (L.ptr + 1) & 0x7f; llFinish(L);
+  switch (a) {
+    case 0x01: return (mega.cpu.cycles < L.busyUntil ? 1 : 0) | (L.peak ? 8 : 0) | 0x30;    // bit0 busy, bit3 피크, bit4 DC 정상, bit5 정상
+    case 0x0e: return L.sig;
+    case 0x0f: return L.dist >> 8;
+    case 0x10: return L.dist & 0xff;
+    case 0x16: return L.unit >> 8;
+    case 0x17: return L.unit & 0xff;
+    default: return L.regs[a];
+  }
+}
+// 하드웨어 TWI (Wire): D20 SDA / D21 SCL에 붙은 센서. 바이트당 9클럭(SCL 주파수 = TWBR 설정)만큼 시간이 걸림
+function attachTwi(L) {
+  const twi = mega.twi, cpu = mega.cpu, later = (bits, fn) => cpu.addClockEvent(fn, Math.max(1, Math.round(bits * 16e6 / twi.sclFrequency)));
+  twi.eventHandler = {
+    start() { later(1, () => twi.completeStart()); },
+    stop() { later(1, () => twi.completeStop()); },
+    connectToSlave(addr, write) { const ack = !!L && llAddr(L, addr, !write); later(9, () => twi.completeConnect(ack)); },
+    writeByte(v) { if (L) llWrite(L, v); later(9, () => twi.completeWrite(!!L)); },
+    readByte() { const v = L ? llRead(L) : 255; later(9, () => twi.completeRead(v)); },
+  };
+}
+// 비트뱅 I2C (SoftwareWire 등): 핀 레벨에서 START/STOP·클럭 엣지를 보고 슬레이브처럼 SDA를 끌어내림. 풀업 저항은 있다고 가정
+function attachBitbang(L, sdaN, sclN) {
+  const [sp, sb] = PINMAP[sdaN], [cp, cb] = PINMAP[sclN];
+  const st = { sda: true, scl: true, low: false, ph: "idle", cnt: 0, sh: 0, isAddr: false, next: "", byte: 0, bit: 0, mAck: false };
+  const bus = () => { const sda = !(mega.drivenLow(sdaN) || st.low), scl = !mega.drivenLow(sclN);
+    mega.port[sp].setPin(sb, sda); mega.port[cp].setPin(cb, scl); return [sda, scl]; };
+  const drive = low => { st.low = low; st.sda = bus()[0]; };
+  const tx = () => { st.byte = llRead(L); st.bit = 7; drive(!((st.byte >> 7) & 1)); st.ph = "tx"; };
+  const onEdge = () => {
+    const [sda, scl] = bus(), pS = st.sda, pC = st.scl;
+    if (sda === pS && scl === pC) return;
+    st.sda = sda; st.scl = scl;
+    if (scl && pC) {                                          // SCL HIGH 중 SDA 변화 = START / STOP
+      if (!sda) { st.low = false; bus(); st.ph = "rx"; st.cnt = 0; st.sh = 0; st.isAddr = true; } else { drive(false); st.ph = "idle"; }
+      return;
+    }
+    if (scl && !pC) {                                         // 상승 엣지: 비트 샘플
+      if (st.ph === "rx" && st.cnt < 8) { st.sh = (st.sh << 1) | (sda ? 1 : 0); st.cnt++; }
+      else if (st.ph === "ackIn") st.mAck = !sda;
+      return;
+    }
+    if (!scl && pC) {                                         // 하강 엣지: 다음 비트 준비
+      if (st.ph === "rx" && st.cnt === 8) {
+        if (st.isAddr) { st.isAddr = false; const rd = !!(st.sh & 1);
+          if (!llAddr(L, st.sh >> 1, rd)) { st.ph = "ignore"; return; }
+          st.next = rd ? "tx" : "rx"; }
+        else { llWrite(L, st.sh); st.next = "rx"; }
+        drive(true); st.ph = "ackOut";
+      } else if (st.ph === "ackOut") {
+        drive(false);
+        if (st.next === "tx") tx(); else { st.ph = "rx"; st.cnt = 0; st.sh = 0; }
+      } else if (st.ph === "tx") {
+        st.bit--; if (st.bit >= 0) drive(!((st.byte >> st.bit) & 1)); else { drive(false); st.ph = "ackIn"; }
+      } else if (st.ph === "ackIn") { if (st.mAck) tx(); else st.ph = "ignore"; }
+    }
+  };
+  mega.port[sp].addListener(onEdge); if (cp !== sp) mega.port[cp].addListener(onEdge);
+  bus();
+}
+// PWM 모드 (MODE 선): MTRIG(1 kΩ 경유) 핀이 출력 LOW면 측정 → 끝나면 MODE 선에 10 µs/cm HIGH 펄스 → 계속 LOW면 반복
+// MTRIG를 연결 안 하면 1 kΩ로 GND에 고정한 것으로 보고 계속 측정. ACQ_CONFIG 0x04 bit1:0 = 01이면 측정 중 HIGH(상태 출력), 10이면 핀 트리거 안 함
+function pwmOn(L) { return L.u.mode >= 0 && llReady(L); }
+function pwmTrigLow(L) { return L.u.mtrig < 0 || mega.drivenLow(L.u.mtrig); }
+function setMon(L, hi) { if (L.mon === hi) return; L.mon = hi; mega.setPin(L.u.mode, hi); }
+function pwmPoll(L) {
+  if (!pwmOn(L) || L.pulse || llBusy(L)) return;
+  const m = L.regs[0x04] & 3; if (m === 2 || m === 3 || !pwmTrigLow(L)) return;
+  if (llStart(L, () => pwmAfter(L)) && m === 1) setMon(L, true);
+}
+function pwmAfter(L) {
+  if (L.u.mode < 0) return;
+  const m = L.regs[0x04] & 3;
+  if (m === 1) { setMon(L, false); pwmPoll(L); return; }
+  if (m !== 0 || !pwmTrigLow(L)) return;                     // I2C로 건 측정도 MODE 선이 LOW로 잡혀 있을 때만 펄스
+  L.pulse = true; setMon(L, true);
+  mega.at(mega.cpu.cycles + L.dist * 10 * 16, () => { setMon(L, false); L.pulse = false; pwmPoll(L); });
+}
+// 전원 EN(주황) 핀: 내부 풀업 → Mega가 출력 LOW로 당길 때만 꺼짐. 다시 켜지면 레지스터 초기화 + 22 ms 부팅
+function powerPoll(L) {
+  const on = !(L.u.en >= 0 && mega.drivenLow(L.u.en));
+  if (on === L.power) return;
+  L.power = on;
+  if (on) { llDefaults(L); L.bootUntil = mega.cpu.cycles + LL_BOOT_MS * 16000; mega.at(L.bootUntil + 1, () => pwmPoll(L)); }
+  else { L.pend = null; L.busyUntil = 0; L.pulse = false; if (L.u.mode >= 0) setMon(L, false); }
+}
+
 // ---------------- 상태 ----------------
-let irVar = [], floorSeed = 0, servoQ = [], usServo = [], usLast = [];
+let irVar = [], floorSeed = 0, servoQ = [], usServo = [], usLast = [], lidars = [];
 let cfg = null, hexText = "", mega = null, veh = null, meas = {}, others = [], serial = "", trail = [], pinState = {};
 const D2R = Math.PI / 180, clamp = (a, lo, hi) => Math.min(hi, Math.max(lo, a));
 const servoDeg = us => (us - 544) / (2400 - 544) * 180;
@@ -181,7 +367,7 @@ function boot() {
   // 초음파: TRIG 하강 엣지 → 그 순간 자세로 거리 계산 → ECHO 펄스 예약
   // 서보 + 초음파 모듈: 서보 SIG 펄스 → 각도(90° = 정면, + = 반시계), 속도 제한
   usServo = cfg.us.map((u, i) => { if (u.servo == null || u.servo < 0) return null; watch(u.servo, "us" + i); return { ang: 90 }; });
-  for (const [ui, u] of cfg.us.entries()) { if (u.trig < 0 || u.echo < 0) continue; const [p] = PINMAP[u.trig]; let prev = false;
+  for (const [ui, u] of cfg.us.entries()) { if (u.kind === "lidar" || u.trig < 0 || u.echo < 0) continue; const [p] = PINMAP[u.trig]; let prev = false;
     mega.port[p].addListener(() => { const s = mega.getPin(u.trig); if (prev && !s) {
       const c = mega.cpu.cycles, co = Math.cos(veh.yaw), si = Math.sin(veh.yaw);
       const sx = veh.x + u.x * co - u.y * si, sy = veh.y + u.x * si + u.y * co;
@@ -189,6 +375,16 @@ function boot() {
       usLast[ui] = { d, c };                                  // 화면 표시용: 코드가 마지막으로 받은 거리
       const w = d == null ? 38000 : 2 * d / 0.0343;          // 왕복 [µs], 에코 없으면 38 ms
       mega.at(c + 460 * 16, () => mega.setPin(u.echo, true)); mega.at(c + (460 + w) * 16, () => mega.setPin(u.echo, false)); } prev = s; }); }
+  // LIDAR-Lite v3HP: SDA/SCL = D20/D21이면 하드웨어 TWI(Wire), 그 밖의 핀이면 비트뱅 슬레이브. MODE·MTRIG·EN은 연결했을 때만
+  lidars = [];
+  let twiDev = null;
+  for (const [ui, u] of cfg.us.entries()) { if (u.kind !== "lidar") continue;
+    const L = newLidar(u); L.idx = ui; lidars.push(L);
+    if (u.sda >= 0 && u.scl >= 0) { if (u.sda === 20 && u.scl === 21) twiDev = L; attachBitbang(L, u.sda, u.scl); }
+    if (u.mode >= 0) { mega.setPin(u.mode, false); if (u.mtrig >= 0) mega.port[PINMAP[u.mtrig][0]].addListener(() => pwmPoll(L)); mega.at(L.bootUntil + 1, () => pwmPoll(L)); }
+    if (u.en >= 0) mega.port[PINMAP[u.en][0]].addListener(() => powerPoll(L));
+  }
+  attachTwi(twiDev);
   const P0 = cfg.params, uni = () => Math.random() * 2 - 1;
   irVar = cfg.ir.map(() => ({ g: 1 + (P0.irVar || 0) / 100 * uni(), o: (P0.irVar || 0) / 100 * 0.5 * (P0.irWhite - P0.irBlack) * uni() }));
   floorSeed = Math.random() * 1000;
@@ -315,6 +511,13 @@ function usView() {
   return cfg.us.map((u, ui) => {
     const L = usLast[ui];
     if (L && now - L.c < 0.3 * 16e6) return [L.d == null ? null : +L.d.toFixed(1), 1];
+    if (u.kind === "lidar") {                                 // 라이다: 코드가 안 쟀으면 지금 자세로 노이즈 없이 한 번 계산
+      if (u.sda < 0 && u.mode < 0) return [null, 0];
+      if (!probe) return null;
+      const [lx, ly, lh] = lidarPose(ui), L = lidars.find(q => q.idx === ui);
+      const r = lidarRaw(lx, ly, lh, others, L ? L.regs[0x02] || 1 : 255, (cfg.params.llRefl ?? 70) / 100);
+      return [r ? +r.d.toFixed(1) : null, 0];
+    }
     if (u.trig < 0 && u.echo < 0) return [null, 0];
     if (!probe) return null;                                  // 선택 안 된 차는 화면용 측정 생략 (CPU 절약)
     const sx = veh.x + u.x * co - u.y * si, sy = veh.y + u.x * si + u.y * co;

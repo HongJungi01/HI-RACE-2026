@@ -627,7 +627,7 @@ canvas#logCv { display: block; width: 100%; height: max(360px, calc(100dvh - 150
       <div class="card-h"><h2>메가 핀 검증</h2><div class="summary" id="sumOut"></div></div>
       <ul class="issues" id="issues"></ul>
       <div class="pinmap" id="pinmap" aria-label="Mega 2560 핀 사용 현황"></div>
-      <div class="legend"><span><i style="background:var(--w-ir)"></i>IR</span><span><i style="background:var(--w-us)"></i>초음파</span><span><i style="background:var(--w-act)"></i>서보·모터·엔코더</span><span><i style="border:1px solid var(--err)"></i>충돌·제약 위반</span></div>
+      <div class="legend"><span><i style="background:var(--w-ir)"></i>IR</span><span><i style="background:var(--w-us)"></i>초음파·라이다</span><span><i style="background:var(--w-act)"></i>서보·모터·엔코더</span><span><i style="border:1px solid var(--err)"></i>충돌·제약 위반</span></div>
     </div>
 
     <div class="card" id="cardParams">
@@ -857,16 +857,27 @@ function irPins(key) {
   return pins;
 }
 const row = (f, keys, pitch = 2.54) => keys.map((k, i) => [k, [f, (keys.length - 1) / 2 * pitch - i * pitch]]);
+// LIDAR-Lite v3HP 핀 (선 색은 Garmin 매뉴얼 기준). SDA·SCL·MODE·MTRIG·EN은 선택 연결 (opt) → 검증에서 따로 확인
+const LIDAR_PIN_LABEL = { VCC: "5V (빨강)", GND: "GND (검정)", SDA: "SDA (파랑)", SCL: "SCL (초록)", MODE: "MODE (노랑, PWM 펄스 읽기)", MTRIG: "MODE 트리거 (노랑 + 1 kΩ)", EN: "전원 EN (주황)" };
+const LIDAR_PINS = (f, dl) => row(f, ["GND", "EN", "MTRIG", "MODE", "SCL", "SDA", "VCC"]).map(([k, [ff, l]]) => ({ key: k, label: LIDAR_PIN_LABEL[k],
+  req: k === "VCC" ? "vcc" : k === "GND" ? "gnd" : "digital", cat: k === "VCC" || k === "GND" ? "pwr" : "us", opt: !["VCC", "GND"].includes(k), at: [ff, l + dl] }));
 const TYPES = {
   mega: { name: "Arduino Mega 2560", short: "Mega", color: "mega", single: true, fixed: true },
   ir11: { name: "IR 11ch 모듈", short: "IR 11ch", note: "LT11 · 245 × 35 mm", color: "w-ir", single: true, pins: irPins("ir11") },
   ir5: { name: "IR 5ch 모듈", short: "IR 5ch", note: "아날로그 5ch + NEAR · 118 × 60 mm", color: "w-ir", single: true, pins: irPins("ir5") },
-  us: { name: "초음파 HC-SR04", short: "US", note: "최대 4개 · 빔 반각 15°", color: "w-us", max: 4,
+  us: { name: "초음파 HC-SR04", short: "US", note: "초음파·라이다 합계 4개 · 빔 반각 15°", color: "w-us", max: 4,
     pins: row(-16, ["GND", "ECHO", "TRIG", "VCC"]).map(([k, at]) => ({ key: k, label: k, req: k === "VCC" ? "vcc" : k === "GND" ? "gnd" : "digital", cat: k === "VCC" || k === "GND" ? "pwr" : "us", at })) },
   // 서보 + 초음파: 서보 혼 위에 HC-SR04. 서보 90° = 부품 정면, 각도↑ = 반시계(왼쪽). 초음파 개수(최대 4)에 포함, 이 모듈은 최대 2개
-  sus: { name: "서보 + 초음파", short: "SUS", note: "최대 2개 · 초음파 4개 안에 포함 · 서보 90° = 정면", color: "w-us", max: 2,
+  sus: { name: "서보 + 초음파", short: "SUS", note: "서보 모듈 합계 2개 · 서보 90° = 정면", color: "w-us", max: 2,
     pins: [...row(-24, ["GND", "ECHO", "TRIG", "VCC"]).map(([k, [f, l]]) => ({ key: k, label: "초음파 " + k, req: k === "VCC" ? "vcc" : k === "GND" ? "gnd" : "digital", cat: k === "VCC" || k === "GND" ? "pwr" : "us", at: [f, l + 9] })),
            ...row(-24, ["SIG", "SVCC", "SGND"]).map(([k, [f, l]]) => ({ key: k, label: { SIG: "서보 SIG", SVCC: "서보 VCC", SGND: "서보 GND" }[k], req: k === "SIG" ? "servo" : k === "SVCC" ? "vcc" : "gnd", cat: k === "SIG" ? "act" : "pwr", at: [f, l - 11] }))] },
+  // LIDAR-Lite v3HP (Garmin): 하우징 53.5 × 33.5 mm(탑뷰, 가정 방향), 앞면 중심 = 부품 원점 = 빔 출구. 선 6개 + 1 kΩ 트리거 연결점
+  //   I2C: SDA(파랑)·SCL(초록) → D20/D21이면 Wire, 그 밖의 핀이면 SoftwareWire 등 비트뱅 / PWM: MODE(노랑) 펄스 10 µs/cm, MODE 트리거 = 노랑 + 1 kΩ
+  //   EN(주황) = 전원 켜기 (내부 풀업, LOW면 꺼짐). 신호선은 모두 선택 연결
+  lid: { name: "LIDAR-Lite v3HP", short: "LID", note: "라이다 합계 3개 · 초음파 포함 4개 · I2C 0x62 / PWM", color: "w-us", max: 3, pins: LIDAR_PINS(-38, 0) },
+  // 서보 + 라이다: 서보 혼 위에 LIDAR-Lite v3HP. 회전축 = 부품 원점, 빔 출구는 축에서 앞으로 13.5 mm. 서보 모듈(초음파·라이다) 합계 최대 2개
+  slid: { name: "서보 + 라이다", short: "SLID", note: "라이다 합계 3개 · 서보 모듈 합계 2개 · 서보 90° = 정면", color: "w-us", max: 2,
+    pins: [...LIDAR_PINS(-26, 12), ...row(-26, ["SIG", "SVCC", "SGND"]).map(([k, [f, l]]) => ({ key: k, label: { SIG: "서보 SIG", SVCC: "서보 VCC", SGND: "서보 GND" }[k], req: k === "SIG" ? "servo" : k === "SVCC" ? "vcc" : "gnd", cat: k === "SIG" ? "act" : "pwr", at: [f, l - 17] }))] },
   // DIP 스위치 4P: 켜면(ON) 해당 핀이 COM(GND)에 붙어 LOW, 끄면 풀업으로 HIGH → 코드에서 INPUT_PULLUP으로 읽음
   dip: { name: "DIP 스위치 4P", short: "DIP", note: "ON = LOW (INPUT_PULLUP) · 출발 차로 등 설정", color: "w-act", single: true, box: [[-6, 6], [-11, 11]],
     pins: [...row(-9, ["SW4", "SW3", "SW2", "SW1"]).map(([k, [f, l]]) => ({ key: k, label: "스위치 " + k.slice(2), req: "digital", cat: "act", at: [f, l + 1.3] })),
@@ -888,13 +899,20 @@ const TYPES = {
            ...row(-18, ["ENCA", "ENCB", "EVCC", "EGND"]).map(([k, at]) => ({ key: k, label: { ENCA: "엔코더 A", ENCB: "엔코더 B", EVCC: "엔코더 VCC", EGND: "엔코더 GND" }[k],
              req: k === "ENCA" ? "extint" : k === "ENCB" ? "digital" : k === "EVCC" ? "vcc" : "gnd", cat: k === "ENCA" || k === "ENCB" ? "act" : "pwr", at }))] },
 };
-const PALETTE = ["ir5", "ir11", "us", "sus", "steer", "drive", "driver", "brake", "tog"];
+const PALETTE = ["ir5", "ir11", "us", "sus", "lid", "slid", "steer", "drive", "driver", "brake", "tog"];
 const SWN = { dip: 4, tog: 1 };                       // 스위치 부품의 스위치 수 (DIP는 예전 레이아웃 호환용, 팔레트에서는 뺌)
 const swKey = (c, i) => c.type === "tog" ? "SW" : "SW" + (i + 1);
 const swName = (c, i) => c.type === "tog" ? "스위치" : "SW" + (i + 1);
-const US_TOTAL = 4;                                   // 초음파(단독 + 서보 모듈) 합계 최대
-const usCount = () => S.comps.filter(c => c.type === "us" || c.type === "sus").length;
-const typeFull = t => { const T = TYPES[t], n = S.comps.filter(c => c.type === t).length; return T.single ? n >= 1 : n >= T.max || ((t === "us" || t === "sus") && usCount() >= US_TOTAL); };
+// 거리 센서: 초음파·라이다 (단독 + 서보 모듈) 합계 최대 4개, 그중 라이다(단독 + 서보)는 최대 3개, 서보 모듈은 종류 상관없이 합계 최대 2개
+const RANGERS = ["us", "sus", "lid", "slid"], SERVO_MODS = ["sus", "slid"], LIDARS = ["lid", "slid"];
+const US_TOTAL = 4, SERVO_TOTAL = 2, LIDAR_TOTAL = 3;
+const lidarCount = () => S.comps.filter(c => LIDARS.includes(c.type)).length;
+const usCount = () => S.comps.filter(c => RANGERS.includes(c.type)).length;
+const servoModCount = () => S.comps.filter(c => SERVO_MODS.includes(c.type)).length;
+const typeFull = t => { const T = TYPES[t], n = S.comps.filter(c => c.type === t).length;
+  return T.single ? n >= 1 : n >= T.max || (RANGERS.includes(t) && usCount() >= US_TOTAL) || (SERVO_MODS.includes(t) && servoModCount() >= SERVO_TOTAL) || (LIDARS.includes(t) && lidarCount() >= LIDAR_TOTAL); };
+const fullWhy = t => { const T = TYPES[t], n = S.comps.filter(c => c.type === t).length;
+  return T.single ? "배치됨" : n >= T.max ? `${T.max}/${T.max} 배치됨` : usCount() >= US_TOTAL ? `초음파·라이다 합계 ${US_TOTAL}개 다 씀` : SERVO_MODS.includes(t) && servoModCount() >= SERVO_TOTAL ? `서보 모듈 합계 ${SERVO_TOTAL}개 다 씀` : `라이다 합계 ${LIDAR_TOTAL}개 다 씀`; };
 
 // ================= 기본 상태 (combined.ino 배선) =================
 // Mega 전원 핀 id (MEGA_PINS 순서 기준)
@@ -906,6 +924,7 @@ const PARAM_GROUPS = [
   ["조향 서보", [["sNeutral", "중립", "°", 110, 1], ["sMin", "최소 (기구 한계)", "°", 75, 1], ["sMax", "최대 (기구 한계)", "°", 145, 1], ["sGain", "게인 (바퀴°/서보°)", "", 1, 0.05], ["sSign", "부호 (−1: 각도↑ = 우회전)", "", -1, 2], ["sRate", "서보 속도 (0 = 즉시)", "°/s", 300, 10], ["sDelay", "서보 응답 지연", "ms", 20, 5], ["sBacklash", "조향 백래시 (유격)", "°", 2, 0.5], ["sTrim", "직진 서보각 오차 (트림)", "°", 2, 0.5]]],
   ["엔코더 (구동 모터 일체)", [["wheelD", "바퀴 지름", "cm", 6.5, 0.1], ["gear", "기어비 (모터:바퀴)", "", 8, 0.5], ["ppr", "모터 1회전 펄스 (채널당)", "", 11, 1], ["aLeads", "전진 시 A가 B보다 앞섬", "bool", 1]]],
   ["IR 센서 (TCRT5000)", [["irH", "장착 높이", "mm", 2.5, 0.1], ["irSpot", "감지 영역 지름", "mm", 4, 0.5], ["irWhite", "흰색 ADC", "", 920, 10], ["irBlack", "검정 ADC", "", 100, 10], ["irTh", "디지털 임계", "", 512, 1], ["irWhiteHigh", "디지털: 흰색 = HIGH", "bool", 1], ["irNoise", "ADC 노이즈 (σ)", "", 8, 1], ["irVar", "센서별 감도 편차 (±)", "%", 12, 1], ["irFloorVar", "바닥 반사율 얼룩 (±)", "%", 6, 1]]],
+  ["LIDAR-Lite v3HP (사양: 40 m @ 반사율 70 %, 정확도 2 m 미만 ±5 cm · 이상 ±2.5 cm, 빔 8 mrad, 1 kHz 이상)", [["llRefl", "상대 차 표면 반사율", "%", 70, 5], ["llNoise", "거리 노이즈 σ (2 m 미만은 1.5배)", "cm", 1, 0.1], ["llBias", "센서별 오프셋 편차 (±)", "cm", 2, 0.5], ["llNear", "1 m 미만 비선형 오차 (최대)", "cm", 5, 0.5], ["llT0", "측정 기본 시간", "ms", 0.6, 0.05], ["llTacq", "획득 1회 시간 (× SIG_COUNT_VAL)", "µs", 2, 0.5]]],
   ["타이어·차체 동역학", [["dyn", "타이어 미끄러짐 모델 사용", "bool", 1], ["mass", "질량", "kg", 1.5, 0.1], ["cgX", "무게중심 (후축에서 앞으로)", "cm", 12, 0.5], ["cf", "앞 타이어 횡강성 (접지 구간, 축당)", "N/rad", 600, 10], ["cr", "뒤 타이어 횡강성 (접지 구간, 축당)", "N/rad", 700, 10], ["mu", "정지 마찰 계수 μs (미끄러지기 시작)", "", 1.0, 0.05], ["muK", "운동 마찰 계수 μk (미끄러지는 중)", "", 0.8, 0.05]]],
 ];
 const DEFAULT_PARAMS = () => Object.fromEntries(PARAM_GROUPS.filter(g => !g[2]).flatMap(g => g[1].map(f => [f[0], f[3]])));
@@ -1017,7 +1036,8 @@ function derive() {
   const ir = [], us = [];
   for (const c of S.comps) {
     if (c.type === "ir5" || c.type === "ir11") for (const p of compPins(c)) if (p.sensor != null) { const n = megaOf(c.id, p.key); if (n >= 0) ir.push({ comp: c.id, sensor: p.sensor, out: p.out, pin: n }); }
-    if (c.type === "us" || c.type === "sus") us.push({ id: c.id, trig: megaOf(c.id, "TRIG"), echo: megaOf(c.id, "ECHO"), servo: c.type === "sus" ? megaOf(c.id, "SIG") : -1 });
+    if (c.type === "us" || c.type === "sus") us.push({ id: c.id, kind: "us", trig: megaOf(c.id, "TRIG"), echo: megaOf(c.id, "ECHO"), servo: c.type === "sus" ? megaOf(c.id, "SIG") : -1 });
+    if (LIDARS.includes(c.type)) us.push({ id: c.id, kind: "lidar", sda: megaOf(c.id, "SDA"), scl: megaOf(c.id, "SCL"), mode: megaOf(c.id, "MODE"), mtrig: megaOf(c.id, "MTRIG"), en: megaOf(c.id, "EN"), servo: c.type === "slid" ? megaOf(c.id, "SIG") : -1 });
   }
   return { conn, act, ir, us };
 }
@@ -1036,7 +1056,11 @@ function toJSON() {
       actuators: Object.fromEntries(Object.entries(D.act).map(([k, v]) => [k, pinName(v)])),
       ir_channels: D.ir.map(r => { const c = comp(r.comp), [f, l] = irL(...IRMOD[c.type].sensors[r.sensor]), [x, y] = toBodyC(c, f, l);
         return { module: r.comp, sensor: r.sensor, read: r.out === "analog" ? "analogRead" : "digitalRead", pin: pinName(r.pin), body_cm: [+x.toFixed(2), +y.toFixed(2)] }; }),
-      ultrasonic: D.us.map(u => { const c = comp(u.id); return { id: u.id, type: c.type, trig: pinName(u.trig), echo: pinName(u.echo), ...(c.type === "sus" ? { servo: pinName(u.servo), servo_note: "90° = mount yaw, + = CCW" } : {}), mount: { x: c.x, y: c.y, yaw: c.yaw } }; }),
+      ultrasonic: D.us.filter(u => u.kind === "us").map(u => { const c = comp(u.id); return { id: u.id, type: c.type, trig: pinName(u.trig), echo: pinName(u.echo), ...(c.type === "sus" ? { servo: pinName(u.servo), servo_note: "90° = mount yaw, + = CCW" } : {}), mount: { x: c.x, y: c.y, yaw: c.yaw } }; }),
+      lidar: D.us.filter(u => u.kind === "lidar").map(u => { const c = comp(u.id); return { id: u.id, type: c.type, model: "LIDAR-Lite v3HP", i2c_addr: "0x62",
+        i2c: u.sda >= 0 && u.scl >= 0 ? (u.sda === 20 && u.scl === 21 ? "hardware TWI (Wire)" : "bit-bang (e.g. SoftwareWire)") : "none",
+        sda: pinName(u.sda), scl: pinName(u.scl), mode: pinName(u.mode), mode_trigger_1k: pinName(u.mtrig), power_en: pinName(u.en),
+        ...(c.type === "slid" ? { servo: pinName(u.servo), servo_note: "90° = mount yaw, + = CCW", beam_offset_cm: 1.35 } : {}), mount: { x: c.x, y: c.y, yaw: c.yaw } }; }),
     },
   };
 }
@@ -1087,6 +1111,7 @@ function validate() {
       continue;
     }
     const megaTos = tos.filter(t => megaPinById[t]);
+    if (!megaTos.length && p.opt) continue;                  // 선택 연결 핀 (라이다 SDA·SCL·MODE 등) → 아래에서 조합으로 확인
     if (!megaTos.length) { if (!(p.sensor != null && (D.conn[`${c.id}.${p.key[0] === "A" ? "D" : "A"}${p.sensor}`] || []).length)) add("warn", `${label}: 미연결`, [ref]); continue; }
     for (const to of megaTos) {
       const mp = megaPinById[to];
@@ -1100,6 +1125,19 @@ function validate() {
       if (p.req === "extint" && !EXTINT[n]) add("error", `${label} = ${P}: attachInterrupt 불가 (가능: 2, 3, 18, 19, 20, 21)`, [ref]);
       if (p.req === "pcint" && PCINT[n] == null) add("error", `${label} = ${P}: 메가에서 PCINT 불가 (가능: 10~15, 50~53, A8~A15)`, [ref]);
     }
+  }
+  // LIDAR-Lite v3HP: I2C(SDA+SCL) 또는 PWM(MODE) 중 하나는 있어야 함
+  for (const u of D.us.filter(u => u.kind === "lidar")) {
+    const c = comp(u.id), nm = compName(c), r = k => `${c.id}.${k}`;
+    if ((u.sda >= 0) !== (u.scl >= 0)) add("warn", `${nm}: SDA와 SCL을 둘 다 연결해야 I2C로 읽을 수 있음`, [r("SDA"), r("SCL")]);
+    if (u.sda < 0 && u.scl < 0 && u.mode < 0) add("warn", `${nm}: I2C(SDA·SCL)나 PWM(MODE) 중 하나는 연결해야 거리를 읽을 수 있음`, [r("SDA"), r("SCL"), r("MODE")]);
+    if (u.sda >= 0 && u.scl >= 0) {
+      if (u.sda === 20 && u.scl === 21) add("info", `${nm}: SDA D20 · SCL D21 → Wire(하드웨어 I2C)나 Garmin LIDARLite_v3HP 라이브러리로 읽음 (주소 0x62)`);
+      else if ([20, 21].includes(u.sda) || [20, 21].includes(u.scl)) add("warn", `${nm}: Wire(하드웨어 I2C)는 SDA = D20, SCL = D21 고정. 지금 배선은 SoftwareWire 같은 비트뱅으로만 읽힘`, [r("SDA"), r("SCL")]);
+      else add("info", `${nm}: SDA ${pinName(u.sda)} · SCL ${pinName(u.scl)} → SoftwareWire 등 소프트웨어 I2C로 읽음 (주소 0x62, SDA·SCL 4.7 kΩ 풀업은 있다고 가정)`);
+    }
+    if (u.mtrig >= 0 && u.mode < 0) add("warn", `${nm}: MODE 트리거만 연결됨 → 펄스를 읽을 MODE 핀도 연결해야 함`, [r("MODE")]);
+    if (u.mode >= 0) add("info", `${nm}: PWM 모드 ${u.mtrig >= 0 ? `MODE 트리거 ${pinName(u.mtrig)}를 LOW로 두면 측정` : "MODE 트리거 미연결 = 1 kΩ로 GND 고정(계속 측정)"} → ${pinName(u.mode)}에서 pulseIn(HIGH) ÷ 10 = cm`);
   }
   for (const [n, xs] of Object.entries(users)) if (xs.length > 1) { add("error", `${pinName(+n)} 중복: ${xs.map(x => x.label).join(", ")}`, xs.map(x => x.ref)); badPins.add(+n); }
   for (const [n, xs] of Object.entries(users)) if (xs.some(x => pinState[x.ref] === "error")) badPins.add(+n);
@@ -1134,14 +1172,14 @@ function renderValidation() {
 let sel = { kind: "comp", id: "ir5" };        // {kind:'comp', id} | {kind:'wire', i} | null
 function buildPalette() {
   $("parts").innerHTML = PALETTE.map(t => { const T = TYPES[t], n = S.comps.filter(c => c.type === t).length, full = typeFull(t);
-    return `<div class="part${full ? " used" : ""}" data-type="${t}" tabindex="${full ? -1 : 0}" role="button" aria-disabled="${full}"><b><i style="background:var(--${T.color})"></i>${T.name}</b><span>${full ? (T.single ? "배치됨" : n >= T.max ? `${T.max}/${T.max} 배치됨` : `초음파 합계 ${US_TOTAL}개 다 씀`) : T.max ? `${n}/${T.max} · ${T.note}` : T.note}</span></div>`; }).join("");
+    return `<div class="part${full ? " used" : ""}" data-type="${t}" tabindex="${full ? -1 : 0}" role="button" aria-disabled="${full}"><b><i style="background:var(--${T.color})"></i>${T.name}</b><span>${full ? fullWhy(t) : T.max ? `${n}/${T.max} · ${T.note}` : T.note}</span></div>`; }).join("");
   $("parts").querySelectorAll(".part:not(.used)").forEach(el => { el.addEventListener("pointerdown", paletteDown); el.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); addComp(el.dataset.type); } }); });
 }
 function defaultSpot(type) {
   const B = S.body;
   const spots = { dip: [18, -6, 0], tog: [18, -6, 0], ir5: [-B.rear - 2.5, 0, 180], ir11: [B.L + B.front - 0.5, 0, 0], steer: [4.5, 3.5, 0], brake: [21, 4.5, 0], drive: [1.5, 0, 90], driver: [4.5, -4.5, 90] };
-  if (type === "sus") { const i = S.comps.filter(c => c.type === "sus").length; return [[24, 0, 0], [-3, 0, 180]][i] || [15, 0, 0]; }
-  if (type === "us") { const i = S.comps.filter(c => c.type === "us").length; return [[B.L + B.front - 1.5, 0, 0], [20, B.W / 2 - 1, 90], [20, -B.W / 2 + 1, -90], [-B.rear + 1.5, 0, 180]][i] || [15, 0, 0]; }
+  if (type === "sus" || type === "slid") { const i = servoModCount(); return [[24, 0, 0], [-3, 0, 180]][i] || [15, 0, 0]; }
+  if (type === "us" || type === "lid") { const i = S.comps.filter(c => c.type === "us" || c.type === "lid").length; return [[B.L + B.front - 1.5, 0, 0], [20, B.W / 2 - 1, 90], [20, -B.W / 2 + 1, -90], [-B.rear + 1.5, 0, 180]][i] || [15, 0, 0]; }
   return spots[type] || [15, 0, 0];
 }
 function addComp(type, at) {
@@ -1185,14 +1223,16 @@ function applySchematic(quiet = false) {
     done.push(`DIP SW1~4 = D${SCHEM.dip.join("·D")}`);
   }
   for (const c of S.comps.filter(c => c.type === "tog")) { wire(`${c.id}.SW`, "D" + SCHEM.tog); wire(`${c.id}.COM`, nextG()); done.push(`토글 스위치 = D${SCHEM.tog}`); }
-  // 초음파 커넥터는 단독 초음파 → 서보 모듈 순서로 배정 (합계 4개)
-  [...S.comps.filter(c => c.type === "us").sort((a, b) => a.id.localeCompare(b.id)), ...S.comps.filter(c => c.type === "sus").sort((a, b) => a.id.localeCompare(b.id))].forEach((c, i) => {
-    const [cn, trig, echo] = SCHEM.us[i];
-    wire(`${c.id}.TRIG`, "D" + trig); wire(`${c.id}.ECHO`, "D" + echo); wire(`${c.id}.VCC`, nextV()); wire(`${c.id}.GND`, nextG());
+  // 초음파 커넥터는 단독(초음파·라이다) → 서보 모듈(초음파·라이다) 순서로 배정 (합계 4개)
+  // 라이다는 같은 커넥터의 TRIG 자리 = SDA, ECHO 자리 = SCL (SoftwareWire로 읽음), MODE·EN은 비워 둠
+  const byId = (a, b) => a.id.localeCompare(b.id), mods = S.comps.filter(q => SERVO_MODS.includes(q.type)).sort(byId);
+  [...S.comps.filter(c => c.type === "us" || c.type === "lid").sort(byId), ...mods].forEach((c, i) => {
+    const [cn, trig, echo] = SCHEM.us[i], lid = LIDARS.includes(c.type);
+    wire(`${c.id}.${lid ? "SDA" : "TRIG"}`, "D" + trig); wire(`${c.id}.${lid ? "SCL" : "ECHO"}`, "D" + echo); wire(`${c.id}.VCC`, nextV()); wire(`${c.id}.GND`, nextG());
     let s = "";
-    if (c.type === "sus") { const k = S.comps.filter(q => q.type === "sus").sort((a, b) => a.id.localeCompare(b.id)).indexOf(c), sp = SCHEM.susServo[k];
+    if (SERVO_MODS.includes(c.type)) { const sp = SCHEM.susServo[mods.indexOf(c)];
       wire(`${c.id}.SIG`, "D" + sp); wire(`${c.id}.SVCC`, nextV()); wire(`${c.id}.SGND`, nextG()); s = `, 서보 D${sp}`; }
-    done.push(`${compName(c)} = ${cn} (TRIG D${trig}, ECHO D${echo}${s})`);
+    done.push(`${compName(c)} = ${cn} (${lid ? `SDA D${trig}, SCL D${echo}` : `TRIG D${trig}, ECHO D${echo}`}${s})`);
   });
   if (quiet) return;
   $("autoMsg").textContent = done.length ? "연결함: " + done.join(" · ") : "배치된 센서가 없습니다.";
@@ -1351,12 +1391,20 @@ function draw() {
   ctx.beginPath(); for (const [p, q] of [[[0, hw], [0, -hw]], [[B.L, hw], [B.L, -hw]]]) { ctx.moveTo(...toPx(...p)); ctx.lineTo(...toPx(...q)); } ctx.stroke();
   for (const [x, y, col] of [[0, hw, colors.car], [0, -hw, colors.car], [B.L, hw, colors.front], [B.L, -hw, colors.front]]) { path([[x - 3.25, y + 1.3], [x + 3.25, y + 1.3], [x + 3.25, y - 1.3], [x - 3.25, y - 1.3]]); ctx.fillStyle = col; ctx.fill(); }
 
-  // 초음파 빔
-  for (const c of S.comps) if (c.type === "us" || c.type === "sus") {
-    if (c.type === "sus") {                                   // 서보 회전 범위 (0~180°) 부채꼴
+  // 초음파 빔 / 라이다 빔
+  for (const c of S.comps) if (RANGERS.includes(c.type)) {
+    if (SERVO_MODS.includes(c.type)) {                                   // 서보 회전 범위 (0~180°) 부채꼴
       ctx.beginPath(); ctx.moveTo(...toPx(c.x, c.y));
       for (let t = -90; t <= 90; t += 5) { const a = (c.yaw + t) * D2R; ctx.lineTo(...toPx(c.x + 12 * Math.cos(a), c.y + 12 * Math.sin(a))); }
       ctx.closePath(); ctx.strokeStyle = colors["beam-edge"]; ctx.lineWidth = k; ctx.setLineDash([2 * k, 3 * k]); ctx.stroke(); ctx.setLineDash([]);
+    }
+    if (LIDARS.includes(c.type)) {                            // 라이다: 출구 폭 1.2 cm + 발산 8 mrad (100 cm 앞에서 약 2 cm)
+      const a = c.yaw * D2R, co = Math.cos(a), si = Math.sin(a), o = c.type === "slid" ? 1.35 : 0, R = 100;
+      const P = (f, l) => toPx(c.x + f * co - l * si, c.y + f * si + l * co);
+      ctx.beginPath(); ctx.moveTo(...P(o, 0.6)); ctx.lineTo(...P(o + R, 0.6 + R * 0.004)); ctx.lineTo(...P(o + R, -0.6 - R * 0.004)); ctx.lineTo(...P(o, -0.6)); ctx.closePath();
+      ctx.fillStyle = colors["beam-edge"]; ctx.globalAlpha = 0.45; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.beginPath(); ctx.moveTo(...P(o + R, 0)); ctx.lineTo(...P(o + R + 60, 0)); ctx.strokeStyle = colors["beam-edge"]; ctx.lineWidth = k; ctx.setLineDash([4 * k, 4 * k]); ctx.stroke(); ctx.setLineDash([]);
+      continue;
     }
     ctx.beginPath(); ctx.moveTo(...toPx(c.x, c.y));
     for (let t = -15; t <= 15; t += 1.5) { const a = (c.yaw + t) * D2R; ctx.lineTo(...toPx(c.x + 60 * Math.cos(a), c.y + 60 * Math.sin(a))); }
@@ -1425,6 +1473,14 @@ function draw() {
       for (const l of [13, -13]) { path(rectC(c, 3, 15, l - 8, l + 8)); ctx.fillStyle = colors.us; ctx.fill(); }
       { const [a, b] = toPx(c.x, c.y); ctx.beginPath(); ctx.arc(a, b, Math.max(2 * k, 0.3 * s), 0, 2 * Math.PI); ctx.fillStyle = colors["part-edge"]; ctx.fill(); }   // 회전축
       label(compName(c), toBodyC(c, -28, 0), colors.us, 11);
+    } else if (c.type === "lid" || c.type === "slid") {
+      const sv = c.type === "slid", f0 = sv ? -20 : -33.5, f1 = sv ? 13.5 : 0;
+      if (sv) { path(rectC(c, -18, 6, -6, 6)); ctx.fillStyle = colors.part; ctx.globalAlpha = 0.9; ctx.fill(); ctx.globalAlpha = 1; ctx.strokeStyle = colors["part-edge"]; ctx.lineWidth = k; ctx.stroke(); }
+      path(rectC(c, f0, f1, -26.75, 26.75)); ctx.fillStyle = colors.part; ctx.globalAlpha = sv ? 0.75 : 0.9; ctx.fill(); ctx.globalAlpha = 1;   // 하우징 53.5 × 33.5 mm
+      ctx.strokeStyle = selc ? colors.accent : colors.us; ctx.lineWidth = (selc ? 3 : 2) * k; ctx.stroke();
+      for (const l of [13, -13]) { path(rectC(c, f1 - 4, f1, l - 9, l + 9)); ctx.fillStyle = colors.us; ctx.fill(); }           // 송·수신 렌즈
+      if (sv) { const [a, b] = toPx(c.x, c.y); ctx.beginPath(); ctx.arc(a, b, Math.max(2 * k, 0.3 * s), 0, 2 * Math.PI); ctx.fillStyle = colors["part-edge"]; ctx.fill(); }
+      label(compName(c), toBodyC(c, sv ? -34 : -46, 0), colors.us, 11);
     } else if (c.type === "us") {
       ctx.strokeStyle = selc ? colors.accent : colors.us; ctx.lineWidth = (selc ? 3 : 2) * k;
       ctx.beginPath(); ctx.moveTo(...toPx(...toBodyC(c, -13, 22.5))); ctx.lineTo(...toPx(...toBodyC(c, -13, -22.5))); ctx.stroke();
@@ -1507,6 +1563,8 @@ function compShape(c) {
   if (c.type === "ir5" || c.type === "ir11") return IRMOD[c.type].outline.map(p => irL(...p));
   if (c.type === "us") return [[-18, -24], [2, -24], [2, 24], [-18, 24]];
   if (c.type === "sus") return [[-26, -24], [15, -24], [15, 24], [-26, 24]];
+  if (c.type === "lid") return [[-40, -27], [0, -27], [0, 27], [-40, 27]];
+  if (c.type === "slid") return [[-28, -27], [13.5, -27], [13.5, 27], [-28, 27]];
   const [[f0, f1], [l0, l1]] = T.box; return [[f0, l0], [f1, l0], [f1, l1], [f0, l1]];
 }
 function hitComp(bx, by) {
@@ -1782,8 +1840,10 @@ function carConfig(car) {
         ir.push({ x, y, analog: a, digital: d, wired: a >= 0 || d >= 0 });
       }
     }
-    const us = S.comps.filter(c => c.type === "us" || c.type === "sus").map(c => ({ x: c.x, y: c.y, yaw: c.yaw * D2R, trig: pinOf(`${c.id}.TRIG`), echo: pinOf(`${c.id}.ECHO`),
-      servo: c.type === "sus" ? pinOf(`${c.id}.SIG`) : -1 }));
+    const us = S.comps.filter(c => RANGERS.includes(c.type)).map(c => LIDARS.includes(c.type)
+      ? { kind: "lidar", x: c.x, y: c.y, yaw: c.yaw * D2R, off: c.type === "slid" ? 1.35 : 0, sda: pinOf(`${c.id}.SDA`), scl: pinOf(`${c.id}.SCL`), mode: pinOf(`${c.id}.MODE`),
+          mtrig: pinOf(`${c.id}.MTRIG`), en: pinOf(`${c.id}.EN`), trig: -1, echo: -1, servo: c.type === "slid" ? pinOf(`${c.id}.SIG`) : -1 }
+      : { kind: "us", x: c.x, y: c.y, yaw: c.yaw * D2R, trig: pinOf(`${c.id}.TRIG`), echo: pinOf(`${c.id}.ECHO`), servo: c.type === "sus" ? pinOf(`${c.id}.SIG`) : -1 });
     const dip = S.comps.filter(c => SWN[c.type]).flatMap(c => Array.from({ length: SWN[c.type] }, (_, i) => ({ pin: pinOf(`${c.id}.${swKey(c, i)}`), on: !!c.sw?.[i] }))).filter(d => d.pin >= 0);
     const B = S.body, hw = B.W / 2 + 1.3;
     return { act: D.act, ir: ir.filter(s => s.wired), irAll: ir, us, dip, params: { ...S.params }, body: { ...B }, shapes,
@@ -2079,6 +2139,18 @@ function drawBoard(V, m, cars, follow, live, names = true, marks = []) {
     if (sel) car.cfg.us.forEach((u, ui) => {                 // 선택한 차의 초음파 빔 (서보 모듈은 현재 서보 각도만큼 회전)
       // 측정값이 있으면 그 거리까지 채우고 끝에 호, 에코 없으면 200 cm 점선 윤곽만, 아직 값이 없으면(정지 직후) 방향만 80 cm
       const m = p.usD?.[ui], d = m ? m[0] : undefined, ang = u.yaw + (p.usAng?.[ui] || 0);
+      if (u.kind === "lidar") {                               // 라이다: 가는 빔. 측정값까지 실선 + 끝점, 반사 없으면 300 cm 점선
+        const o = u.off || 0, R = d == null ? (d === null ? 300 : 80) : d;
+        g.save(); g.translate(u.x, u.y); g.rotate(ang); g.beginPath(); g.moveTo(o, 0); g.lineTo(o + R, 0);
+        g.lineWidth = Math.max(0.8, 1.6 * k / scam.s); g.strokeStyle = colors.us;
+        if (d == null) { g.setLineDash([4 * k / scam.s, 4 * k / scam.s]); g.globalAlpha = d === null ? 0.6 : 0.35; }
+        g.stroke(); g.setLineDash([]); g.globalAlpha = 1;
+        if (d != null) { g.beginPath(); g.arc(o + d, 0, Math.max(0.8, 3 * k / scam.s), 0, 2 * Math.PI); g.fillStyle = colors.us; g.fill(); }
+        g.restore();
+        if (d !== undefined) { const r = o + R + 8, lx = u.x + r * Math.cos(ang), ly = u.y + r * Math.sin(ang);
+          usLabels.push([p.x + lx * Math.cos(p.yaw) - ly * Math.sin(p.yaw), p.y + lx * Math.sin(p.yaw) + ly * Math.cos(p.yaw), d == null ? "없음" : `${Math.round(d)} cm`, m[1]]); }
+        return;
+      }
       const fan = r => { g.beginPath(); g.moveTo(0, 0); for (let a = -15; a <= 15; a += 3) g.lineTo(r * Math.cos(a * D2R), r * Math.sin(a * D2R)); g.closePath(); };
       g.save(); g.translate(u.x, u.y); g.rotate(ang);
       if (d === undefined) { fan(80); g.fillStyle = colors.beam; g.fill(); }
@@ -2604,7 +2676,7 @@ const REC = { cur: null };
 const ACTIVE = ["running", "paused", "compiling", "starting"];
 const r1 = v => Math.round(v * 10) / 10;
 const carLook = c => ({ body: { ...c.cfg.body }, shapes: c.cfg.shapes.filter(s => s.type !== "mega").map(s => ({ type: s.type, pts: s.pts.map(([x, y]) => [r1(x), r1(y)]) })),
-  us: c.cfg.us.map(u => ({ x: r1(u.x), y: r1(u.y), yaw: Math.round(u.yaw * 1000) / 1000, servo: u.servo })), irAll: c.cfg.irAll.map(q => ({ x: r1(q.x), y: r1(q.y) })) });
+  us: c.cfg.us.map(u => ({ x: r1(u.x), y: r1(u.y), yaw: Math.round(u.yaw * 1000) / 1000, servo: u.servo, ...(u.kind === "lidar" ? { kind: "lidar", off: u.off } : {}) })), irAll: c.cfg.irAll.map(q => ({ x: r1(q.x), y: r1(q.y) })) });
 const wrapPi = a => Math.atan2(Math.sin(a), Math.cos(a));
 function recShow() {
   const el = $("recOut"), R = REC.cur, on = $("recTog").checked;
