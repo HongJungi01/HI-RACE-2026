@@ -857,10 +857,11 @@ function irPins(key) {
   return pins;
 }
 const row = (f, keys, pitch = 2.54) => keys.map((k, i) => [k, [f, (keys.length - 1) / 2 * pitch - i * pitch]]);
-// LIDAR-Lite v3HP 핀 (선 색은 Garmin 매뉴얼 기준). SDA·SCL·MODE·MTRIG·EN은 선택 연결 (opt) → 검증에서 따로 확인
-const LIDAR_PIN_LABEL = { VCC: "5V (빨강)", GND: "GND (검정)", SDA: "SDA (파랑)", SCL: "SCL (초록)", MODE: "MODE (노랑, PWM 펄스 읽기)", MTRIG: "MODE 트리거 (노랑 + 1 kΩ)", EN: "전원 EN (주황)" };
-const LIDAR_PINS = (f, dl) => row(f, ["GND", "EN", "MTRIG", "MODE", "SCL", "SDA", "VCC"]).map(([k, [ff, l]]) => ({ key: k, label: LIDAR_PIN_LABEL[k],
-  req: k === "VCC" ? "vcc" : k === "GND" ? "gnd" : "digital", cat: k === "VCC" || k === "GND" ? "pwr" : "us", opt: !["VCC", "GND"].includes(k), at: [ff, l + dl] }));
+// LIDAR-Lite v3HP 핀 — PWM 모드만 씀 (사용자 결정). 선 색은 Garmin 매뉴얼 기준, I2C(초록·파랑)·EN(주황)은 연결 안 함
+// MODE = 노랑 직결(펄스 읽기, pulseIn), MTRIG = 같은 노랑 선에 1 kΩ 거쳐 연결(LOW로 당기면 측정). MTRIG는 선택: 안 쓰면 1 kΩ로 GND 고정 = 계속 측정
+const LIDAR_PIN_LABEL = { VCC: "5V (빨강)", GND: "GND (검정)", MODE: "MODE (노랑, PWM 펄스 읽기)", MTRIG: "MODE 트리거 (노랑 + 1 kΩ)" };
+const LIDAR_PINS = (f, dl) => row(f, ["GND", "MTRIG", "MODE", "VCC"]).map(([k, [ff, l]]) => ({ key: k, label: LIDAR_PIN_LABEL[k],
+  req: k === "VCC" ? "vcc" : k === "GND" ? "gnd" : "digital", cat: k === "VCC" || k === "GND" ? "pwr" : "us", opt: k === "MTRIG", at: [ff, l + dl] }));
 const TYPES = {
   mega: { name: "Arduino Mega 2560", short: "Mega", color: "mega", single: true, fixed: true },
   ir11: { name: "IR 11ch 모듈", short: "IR 11ch", note: "LT11 · 245 × 35 mm", color: "w-ir", single: true, pins: irPins("ir11") },
@@ -871,10 +872,8 @@ const TYPES = {
   sus: { name: "서보 + 초음파", short: "SUS", note: "서보 모듈 합계 2개 · 서보 90° = 정면", color: "w-us", max: 2,
     pins: [...row(-24, ["GND", "ECHO", "TRIG", "VCC"]).map(([k, [f, l]]) => ({ key: k, label: "초음파 " + k, req: k === "VCC" ? "vcc" : k === "GND" ? "gnd" : "digital", cat: k === "VCC" || k === "GND" ? "pwr" : "us", at: [f, l + 9] })),
            ...row(-24, ["SIG", "SVCC", "SGND"]).map(([k, [f, l]]) => ({ key: k, label: { SIG: "서보 SIG", SVCC: "서보 VCC", SGND: "서보 GND" }[k], req: k === "SIG" ? "servo" : k === "SVCC" ? "vcc" : "gnd", cat: k === "SIG" ? "act" : "pwr", at: [f, l - 11] }))] },
-  // LIDAR-Lite v3HP (Garmin): 하우징 53.5 × 33.5 mm(탑뷰, 가정 방향), 앞면 중심 = 부품 원점 = 빔 출구. 선 6개 + 1 kΩ 트리거 연결점
-  //   I2C: SDA(파랑)·SCL(초록) → D20/D21이면 Wire, 그 밖의 핀이면 SoftwareWire 등 비트뱅 / PWM: MODE(노랑) 펄스 10 µs/cm, MODE 트리거 = 노랑 + 1 kΩ
-  //   EN(주황) = 전원 켜기 (내부 풀업, LOW면 꺼짐). 신호선은 모두 선택 연결
-  lid: { name: "LIDAR-Lite v3HP", short: "LID", note: "라이다 합계 3개 · 초음파 포함 4개 · I2C 0x62 / PWM", color: "w-us", max: 3, pins: LIDAR_PINS(-38, 0) },
+  // LIDAR-Lite v3HP (Garmin): 하우징 53.5 × 33.5 mm(탑뷰, 가정 방향), 앞면 중심 = 부품 원점 = 빔 출구. PWM 모드: MODE(노랑) 펄스 10 µs/cm
+  lid: { name: "LIDAR-Lite v3HP", short: "LID", note: "라이다 합계 3개 · 초음파 포함 4개 · PWM 10 µs/cm", color: "w-us", max: 3, pins: LIDAR_PINS(-38, 0) },
   // 서보 + 라이다: 서보 혼 위에 LIDAR-Lite v3HP. 회전축 = 부품 원점, 빔 출구는 축에서 앞으로 13.5 mm. 서보 모듈(초음파·라이다) 합계 최대 2개
   slid: { name: "서보 + 라이다", short: "SLID", note: "라이다 합계 3개 · 서보 모듈 합계 2개 · 서보 90° = 정면", color: "w-us", max: 2,
     pins: [...LIDAR_PINS(-26, 12), ...row(-26, ["SIG", "SVCC", "SGND"]).map(([k, [f, l]]) => ({ key: k, label: { SIG: "서보 SIG", SVCC: "서보 VCC", SGND: "서보 GND" }[k], req: k === "SIG" ? "servo" : k === "SVCC" ? "vcc" : "gnd", cat: k === "SIG" ? "act" : "pwr", at: [f, l - 17] }))] },
@@ -1057,9 +1056,8 @@ function toJSON() {
       ir_channels: D.ir.map(r => { const c = comp(r.comp), [f, l] = irL(...IRMOD[c.type].sensors[r.sensor]), [x, y] = toBodyC(c, f, l);
         return { module: r.comp, sensor: r.sensor, read: r.out === "analog" ? "analogRead" : "digitalRead", pin: pinName(r.pin), body_cm: [+x.toFixed(2), +y.toFixed(2)] }; }),
       ultrasonic: D.us.filter(u => u.kind === "us").map(u => { const c = comp(u.id); return { id: u.id, type: c.type, trig: pinName(u.trig), echo: pinName(u.echo), ...(c.type === "sus" ? { servo: pinName(u.servo), servo_note: "90° = mount yaw, + = CCW" } : {}), mount: { x: c.x, y: c.y, yaw: c.yaw } }; }),
-      lidar: D.us.filter(u => u.kind === "lidar").map(u => { const c = comp(u.id); return { id: u.id, type: c.type, model: "LIDAR-Lite v3HP", i2c_addr: "0x62",
-        i2c: u.sda >= 0 && u.scl >= 0 ? (u.sda === 20 && u.scl === 21 ? "hardware TWI (Wire)" : "bit-bang (e.g. SoftwareWire)") : "none",
-        sda: pinName(u.sda), scl: pinName(u.scl), mode: pinName(u.mode), mode_trigger_1k: pinName(u.mtrig), power_en: pinName(u.en),
+      lidar: D.us.filter(u => u.kind === "lidar").map(u => { const c = comp(u.id); return { id: u.id, type: c.type, model: "LIDAR-Lite v3HP", interface: "PWM (10 us/cm)",
+        mode: pinName(u.mode), mode_trigger_1k: u.mtrig >= 0 ? pinName(u.mtrig) : "none (1k to GND, free-run)",
         ...(c.type === "slid" ? { servo: pinName(u.servo), servo_note: "90° = mount yaw, + = CCW", beam_offset_cm: 1.35 } : {}), mount: { x: c.x, y: c.y, yaw: c.yaw } }; }),
     },
   };
@@ -1126,18 +1124,10 @@ function validate() {
       if (p.req === "pcint" && PCINT[n] == null) add("error", `${label} = ${P}: 메가에서 PCINT 불가 (가능: 10~15, 50~53, A8~A15)`, [ref]);
     }
   }
-  // LIDAR-Lite v3HP: I2C(SDA+SCL) 또는 PWM(MODE) 중 하나는 있어야 함
+  // LIDAR-Lite v3HP (PWM): MODE 미연결은 위에서 "미연결" 주의로 나옴
   for (const u of D.us.filter(u => u.kind === "lidar")) {
-    const c = comp(u.id), nm = compName(c), r = k => `${c.id}.${k}`;
-    if ((u.sda >= 0) !== (u.scl >= 0)) add("warn", `${nm}: SDA와 SCL을 둘 다 연결해야 I2C로 읽을 수 있음`, [r("SDA"), r("SCL")]);
-    if (u.sda < 0 && u.scl < 0 && u.mode < 0) add("warn", `${nm}: I2C(SDA·SCL)나 PWM(MODE) 중 하나는 연결해야 거리를 읽을 수 있음`, [r("SDA"), r("SCL"), r("MODE")]);
-    if (u.sda >= 0 && u.scl >= 0) {
-      if (u.sda === 20 && u.scl === 21) add("info", `${nm}: SDA D20 · SCL D21 → Wire(하드웨어 I2C)나 Garmin LIDARLite_v3HP 라이브러리로 읽음 (주소 0x62)`);
-      else if ([20, 21].includes(u.sda) || [20, 21].includes(u.scl)) add("warn", `${nm}: Wire(하드웨어 I2C)는 SDA = D20, SCL = D21 고정. 지금 배선은 SoftwareWire 같은 비트뱅으로만 읽힘`, [r("SDA"), r("SCL")]);
-      else add("info", `${nm}: SDA ${pinName(u.sda)} · SCL ${pinName(u.scl)} → SoftwareWire 등 소프트웨어 I2C로 읽음 (주소 0x62, SDA·SCL 4.7 kΩ 풀업은 있다고 가정)`);
-    }
-    if (u.mtrig >= 0 && u.mode < 0) add("warn", `${nm}: MODE 트리거만 연결됨 → 펄스를 읽을 MODE 핀도 연결해야 함`, [r("MODE")]);
-    if (u.mode >= 0) add("info", `${nm}: PWM 모드 ${u.mtrig >= 0 ? `MODE 트리거 ${pinName(u.mtrig)}를 LOW로 두면 측정` : "MODE 트리거 미연결 = 1 kΩ로 GND 고정(계속 측정)"} → ${pinName(u.mode)}에서 pulseIn(HIGH) ÷ 10 = cm`);
+    const c = comp(u.id), nm = compName(c);
+    if (u.mode >= 0) add("info", `${nm}: ${u.mtrig >= 0 ? `MODE 트리거 ${pinName(u.mtrig)}를 LOW로 두면 측정` : "MODE 트리거 미연결 = 1 kΩ로 GND 고정(계속 측정)"} → ${pinName(u.mode)}에서 pulseIn(HIGH) ÷ 10 = cm`);
   }
   for (const [n, xs] of Object.entries(users)) if (xs.length > 1) { add("error", `${pinName(+n)} 중복: ${xs.map(x => x.label).join(", ")}`, xs.map(x => x.ref)); badPins.add(+n); }
   for (const [n, xs] of Object.entries(users)) if (xs.some(x => pinState[x.ref] === "error")) badPins.add(+n);
@@ -1224,15 +1214,15 @@ function applySchematic(quiet = false) {
   }
   for (const c of S.comps.filter(c => c.type === "tog")) { wire(`${c.id}.SW`, "D" + SCHEM.tog); wire(`${c.id}.COM`, nextG()); done.push(`토글 스위치 = D${SCHEM.tog}`); }
   // 초음파 커넥터는 단독(초음파·라이다) → 서보 모듈(초음파·라이다) 순서로 배정 (합계 4개)
-  // 라이다는 같은 커넥터의 TRIG 자리 = SDA, ECHO 자리 = SCL (SoftwareWire로 읽음), MODE·EN은 비워 둠
+  // 라이다(PWM)는 같은 커넥터의 TRIG 자리 = MODE 트리거(1 kΩ 경유), ECHO 자리 = MODE (초음파 코드의 TRIG/ECHO 구조 그대로)
   const byId = (a, b) => a.id.localeCompare(b.id), mods = S.comps.filter(q => SERVO_MODS.includes(q.type)).sort(byId);
   [...S.comps.filter(c => c.type === "us" || c.type === "lid").sort(byId), ...mods].forEach((c, i) => {
     const [cn, trig, echo] = SCHEM.us[i], lid = LIDARS.includes(c.type);
-    wire(`${c.id}.${lid ? "SDA" : "TRIG"}`, "D" + trig); wire(`${c.id}.${lid ? "SCL" : "ECHO"}`, "D" + echo); wire(`${c.id}.VCC`, nextV()); wire(`${c.id}.GND`, nextG());
+    wire(`${c.id}.${lid ? "MTRIG" : "TRIG"}`, "D" + trig); wire(`${c.id}.${lid ? "MODE" : "ECHO"}`, "D" + echo); wire(`${c.id}.VCC`, nextV()); wire(`${c.id}.GND`, nextG());
     let s = "";
     if (SERVO_MODS.includes(c.type)) { const sp = SCHEM.susServo[mods.indexOf(c)];
       wire(`${c.id}.SIG`, "D" + sp); wire(`${c.id}.SVCC`, nextV()); wire(`${c.id}.SGND`, nextG()); s = `, 서보 D${sp}`; }
-    done.push(`${compName(c)} = ${cn} (${lid ? `SDA D${trig}, SCL D${echo}` : `TRIG D${trig}, ECHO D${echo}`}${s})`);
+    done.push(`${compName(c)} = ${cn} (${lid ? `트리거 D${trig}, MODE D${echo}` : `TRIG D${trig}, ECHO D${echo}`}${s})`);
   });
   if (quiet) return;
   $("autoMsg").textContent = done.length ? "연결함: " + done.join(" · ") : "배치된 센서가 없습니다.";
