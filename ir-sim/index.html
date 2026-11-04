@@ -680,7 +680,8 @@ canvas#logCv { display: block; width: 100%; height: max(360px, calc(100dvh - 150
     <div class="card">
       <div class="card-h"><h2>차량 불러오기</h2><span class="sub" id="carCount"></span></div>
       <div class="parts">
-        <div class="part" id="addSample" role="button" tabindex="0" style="grid-column:1/-1"><b><i style="background:var(--car1)"></i>샘플 차량</b><span>기본 차량(앞 11ch · 뒤 5ch, 회로도 배선) + P 제어 샘플 코드</span></div>
+        <div class="part" id="addSample" role="button" tabindex="0" style="grid-column:1/-1"><b><i style="background:var(--car1)"></i>샘플 차량</b><span>기본 차량(ESC · 앞 11ch · 뒤 5ch, 회로도 배선) + P 제어·속도 PID 샘플 코드</span></div>
+        <div class="part" id="addSampleOld" role="button" tabindex="0" style="grid-column:1/-1"><b><i style="background:var(--car2)"></i>샘플 차량 (모터 드라이버)</b><span>예전 기본 차량(PWM D6 · DIR D7, 조향 110°) + P 제어 샘플 코드</span></div>
         <div class="part" id="addDummy" role="button" tabindex="0" style="grid-column:1/-1"><b><i style="background:var(--muted)"></i>더미 차량 (코드 없음)</b><span>Mega 없이 맵의 선을 바로 따라가는 테스트용 차. 출발 위치에서 가장 가까운 선 · 속도 고정</span></div>
         <div class="part" id="addFromTab1" role="button" tabindex="0"><b><i style="background:var(--accent)"></i>탭 1 차량</b><span>지금 탭 1에 있는 배치·배선 그대로</span></div>
         <label class="part" for="addFromFile" tabindex="0"><b><i style="background:var(--muted)"></i>JSON 파일</b><span>탭 1에서 저장한 차량 설정</span><input id="addFromFile" type="file" accept=".json,application/json" hidden></label>
@@ -892,13 +893,19 @@ const TYPES = {
   driver: { name: "모터 드라이버", short: "드라이버", note: "PWM · DIR → 모터 출력", color: "w-act", single: true, box: [[-15, 15], [-20, 20]],
     pins: [...row(-18, ["PWM", "DIR", "GND"]).map(([k, at]) => ({ key: k, label: k, req: k === "PWM" ? "pwm" : k === "DIR" ? "digital" : "gnd", cat: k === "GND" ? "pwr" : "act", at })),
            ...row(18, ["OUTA", "OUTB"], 5.08).map(([k, at]) => ({ key: k, label: k === "OUTA" ? "OUT A" : "OUT B", req: "mout", cat: "mot", at }))] },
+  // ESC (RC 변속기): Mega에서 서보 펄스 1000~2000 µs (중립 1500)를 받아 모터 구동. 모터 드라이버와 둘 중 하나만
+  //   SIG = Servo.writeMicroseconds, BEC(5V 출력)는 시뮬 범위 밖이라 핀 없음. 앞쪽 = 모터 출력
+  esc: { name: "ESC (RC 변속기)", short: "ESC", note: "서보 펄스 1000~2000 µs (중립 1500) → 모터", color: "w-act", single: true, box: [[-15, 15], [-17, 17]],
+    pins: [...row(-18, ["SIG", "GND"]).map(([k, at]) => ({ key: k, label: k === "SIG" ? "SIG (서보 펄스)" : "GND", req: k === "SIG" ? "servo" : "gnd", cat: k === "GND" ? "pwr" : "act", at })),
+           ...row(18, ["OUTA", "OUTB"], 5.08).map(([k, at]) => ({ key: k, label: k === "OUTA" ? "모터 출력 A" : "모터 출력 B", req: "mout", cat: "mot", at }))] },
   // 구동 모터 (엔코더 일체): 앞쪽 = 모터 단자(드라이버로), 뒤쪽 = 엔코더(Mega 직결)
   drive: { name: "구동 모터 + 엔코더", short: "구동 모터", note: "M+/M− → 드라이버 · 엔코더 → Mega", color: "w-act", single: true, box: [[-15, 15], [-13, 13]],
     pins: [...row(18, ["M+", "M-"], 5.08).map(([k, at]) => ({ key: k, label: k === "M+" ? "M+" : "M−", req: "min", cat: "mot", at })),
            ...row(-18, ["ENCA", "ENCB", "EVCC", "EGND"]).map(([k, at]) => ({ key: k, label: { ENCA: "엔코더 A", ENCB: "엔코더 B", EVCC: "엔코더 VCC", EGND: "엔코더 GND" }[k],
              req: k === "ENCA" ? "extint" : k === "ENCB" ? "digital" : k === "EVCC" ? "vcc" : "gnd", cat: k === "ENCA" || k === "ENCB" ? "act" : "pwr", at }))] },
 };
-const PALETTE = ["ir5", "ir11", "us", "sus", "lid", "slid", "steer", "drive", "driver", "brake", "tog"];
+const PALETTE = ["ir5", "ir11", "us", "sus", "lid", "slid", "steer", "drive", "esc", "driver", "brake", "tog"];
+const MOTOR_DRV = ["driver", "esc"];                  // 모터 드라이버(PWM·DIR)와 ESC는 둘 중 하나만
 const SWN = { dip: 4, tog: 1 };                       // 스위치 부품의 스위치 수 (DIP는 예전 레이아웃 호환용, 팔레트에서는 뺌)
 const swKey = (c, i) => c.type === "tog" ? "SW" : "SW" + (i + 1);
 const swName = (c, i) => c.type === "tog" ? "스위치" : "SW" + (i + 1);
@@ -909,8 +916,10 @@ const lidarCount = () => S.comps.filter(c => LIDARS.includes(c.type)).length;
 const usCount = () => S.comps.filter(c => RANGERS.includes(c.type)).length;
 const servoModCount = () => S.comps.filter(c => SERVO_MODS.includes(c.type)).length;
 const typeFull = t => { const T = TYPES[t], n = S.comps.filter(c => c.type === t).length;
+  if (MOTOR_DRV.includes(t) && S.comps.some(c => MOTOR_DRV.includes(c.type))) return true;
   return T.single ? n >= 1 : n >= T.max || (RANGERS.includes(t) && usCount() >= US_TOTAL) || (SERVO_MODS.includes(t) && servoModCount() >= SERVO_TOTAL) || (LIDARS.includes(t) && lidarCount() >= LIDAR_TOTAL); };
 const fullWhy = t => { const T = TYPES[t], n = S.comps.filter(c => c.type === t).length;
+  if (MOTOR_DRV.includes(t) && !n && S.comps.some(c => MOTOR_DRV.includes(c.type))) return t === "esc" ? "모터 드라이버가 배치됨 (둘 중 하나)" : "ESC가 배치됨 (둘 중 하나)";
   return T.single ? "배치됨" : n >= T.max ? `${T.max}/${T.max} 배치됨` : usCount() >= US_TOTAL ? `초음파·라이다 합계 ${US_TOTAL}개 다 씀` : SERVO_MODS.includes(t) && servoModCount() >= SERVO_TOTAL ? `서보 모듈 합계 ${SERVO_TOTAL}개 다 씀` : `라이다 합계 ${LIDAR_TOTAL}개 다 씀`; };
 
 // ================= 기본 상태 (combined.ino 배선) =================
@@ -919,15 +928,17 @@ const PWR = kind => MEGA_PINS.filter(p => p.kind === kind).map(p => p.id);
 // 차량 동작 파라미터 (실측 전 가정값) — [키, 라벨, 단위, 기본값, step] 또는 체크박스 [키, 라벨, "bool", 기본값]
 const PARAM_GROUPS = [
   ["차체", [["L", "휠베이스 L", "cm", 26, 0.5], ["W", "윤거", "cm", 17, 0.5], ["front", "앞 오버행", "cm", 6, 0.5], ["rear", "뒤 오버행", "cm", 6, 0.5]], "body"],
-  ["구동 (DC 모터 + 드라이버 PWM·DIR)", [["vmax", "PWM 255 이론 최고속도 (마찰 무시)", "cm/s", 300, 5], ["vbat", "배터리 전압", "V", 7.4, 0.1], ["mR", "모터 저항", "Ω", 1.5, 0.1], ["mL", "모터 인덕턴스", "mH", 0.1, 0.05], ["mFric", "모터 마찰 토크", "mN·m", 3, 0.5], ["jEq", "회전부 등가 질량", "kg", 0.2, 0.05], ["crr", "구름 저항 계수", "", 0.03, 0.005], ["slowDecay", "PWM 꺼짐 구간 = 단락 제동 (끄면 관성 주행)", "bool", 1], ["dirRev", "DIR HIGH = 후진", "bool", 1]]],
+  ["구동 (DC 모터 + 드라이버 PWM·DIR 또는 ESC)", [["vmax", "PWM 255 / ESC 풀스로틀 이론 최고속도 (마찰 무시)", "cm/s", 300, 5], ["vbat", "배터리 전압", "V", 7.4, 0.1], ["mR", "모터 저항", "Ω", 1.5, 0.1], ["mL", "모터 인덕턴스", "mH", 0.1, 0.05], ["mFric", "모터 마찰 토크", "mN·m", 3, 0.5], ["jEq", "회전부 등가 질량", "kg", 0.2, 0.05], ["crr", "구름 저항 계수", "", 0.03, 0.005], ["slowDecay", "PWM 꺼짐 구간 = 단락 제동 (끄면 관성 주행, 드라이버만)", "bool", 1], ["dirRev", "DIR HIGH = 후진 (드라이버만)", "bool", 1]]],
+  ["ESC (ESC 부품을 쓸 때만)", [["escDb", "중립 데드밴드 (1500 ±)", "µs", 40, 5], ["escArm", "무장: 전원 뒤 중립 유지 시간", "ms", 500, 50], ["escBrake", "최대 브레이크 (풀 역스로틀, 굴러갈 때)", "%", 75, 5], ["escRev", "후진 최대 출력 (서 있을 때 역스로틀)", "%", 35, 5], ["escDrag", "중립 드래그 브레이크", "%", 0, 5], ["escLatch", "브레이크는 중립을 거쳐야 후진으로 바뀜", "bool", 1]]],
   ["조향 서보", [["sNeutral", "중립", "°", 110, 1], ["sMin", "최소 (기구 한계)", "°", 75, 1], ["sMax", "최대 (기구 한계)", "°", 145, 1], ["sGain", "게인 (바퀴°/서보°)", "", 1, 0.05], ["sSign", "부호 (−1: 각도↑ = 우회전)", "", -1, 2], ["sRate", "서보 속도 (0 = 즉시)", "°/s", 300, 10], ["sDelay", "서보 응답 지연", "ms", 20, 5], ["sBacklash", "조향 백래시 (유격)", "°", 2, 0.5], ["sTrim", "직진 서보각 오차 (트림)", "°", 2, 0.5]]],
-  ["엔코더 (구동 모터 일체)", [["wheelD", "바퀴 지름", "cm", 6.5, 0.1], ["gear", "기어비 (모터:바퀴)", "", 8, 0.5], ["ppr", "모터 1회전 펄스 (채널당)", "", 11, 1], ["aLeads", "전진 시 A가 B보다 앞섬", "bool", 1]]],
+  ["엔코더 (구동 모터 일체)", [["wheelD", "바퀴 지름", "cm", 6.5, 0.1], ["gear", "기어비 (모터:바퀴)", "", 8, 0.5], ["ppr", "모터 1회전 펄스 (채널당)", "", 11, 1], ["tpm", "실측 카운트/m (4체배, 0 = 바퀴·기어·PPR로 계산)", "", 0, 1], ["aLeads", "전진 시 A가 B보다 앞섬", "bool", 1]]],
   ["IR 센서 (TCRT5000)", [["irH", "장착 높이", "mm", 2.5, 0.1], ["irSpot", "감지 영역 지름", "mm", 4, 0.5], ["irWhite", "흰색 ADC", "", 920, 10], ["irBlack", "검정 ADC", "", 100, 10], ["irTh", "디지털 임계", "", 512, 1], ["irWhiteHigh", "디지털: 흰색 = HIGH", "bool", 1], ["irNoise", "ADC 노이즈 (σ)", "", 8, 1], ["irVar", "센서별 감도 편차 (±)", "%", 12, 1], ["irFloorVar", "바닥 반사율 얼룩 (±)", "%", 6, 1]]],
   ["LIDAR-Lite v3HP (사양: 40 m @ 반사율 70 %, 정확도 2 m 미만 ±5 cm · 이상 ±2.5 cm, 빔 8 mrad, 1 kHz 이상)", [["llRefl", "상대 차 표면 반사율", "%", 70, 5], ["llNoise", "거리 노이즈 σ (2 m 미만은 1.5배)", "cm", 1, 0.1], ["llBias", "센서별 오프셋 편차 (±)", "cm", 2, 0.5], ["llNear", "1 m 미만 비선형 오차 (최대)", "cm", 5, 0.5], ["llT0", "측정 기본 시간", "ms", 0.6, 0.05], ["llTacq", "획득 1회 시간 (× SIG_COUNT_VAL)", "µs", 2, 0.5]]],
   ["타이어·차체 동역학", [["dyn", "타이어 미끄러짐 모델 사용", "bool", 1], ["mass", "질량", "kg", 1.5, 0.1], ["cgX", "무게중심 (후축에서 앞으로)", "cm", 12, 0.5], ["cf", "앞 타이어 횡강성 (접지 구간, 축당)", "N/rad", 600, 10], ["cr", "뒤 타이어 횡강성 (접지 구간, 축당)", "N/rad", 700, 10], ["mu", "정지 마찰 계수 μs (미끄러지기 시작)", "", 1.0, 0.05], ["muK", "운동 마찰 계수 μk (미끄러지는 중)", "", 0.8, 0.05]]],
 ];
 const DEFAULT_PARAMS = () => Object.fromEntries(PARAM_GROUPS.filter(g => !g[2]).flatMap(g => g[1].map(f => [f[0], f[3]])));
-const DEFAULT = () => {
+// 예전 기본 차량 (모터 드라이버 PWM D6 · DIR D7, 조향 Servo.write 110°) — 샘플·더미 차량용으로 유지
+const DEFAULT_LEGACY = () => {
   const V5 = PWR("5V"), G = PWR("GND");
   return {
     body: { L: 26, W: 17, front: 6, rear: 6 },
@@ -949,6 +960,23 @@ const DEFAULT = () => {
       ["steer.VCC", V5[2]], ["steer.GND", G[2]],
     ].map(([from, to]) => ({ from, to, via: [] })),
   };
+};
+
+// 기본 차량 (ESC): 조향 서보 D9 (µs 중앙 1432, ±315 µs = 바퀴 ±20°, µs↓ = 왼쪽), ESC D6 (Servo 펄스), 엔코더 D2/D3 1584 틱/m
+// 기본 하위제어기 코드(ESC + 서보, 조종기 전용) 기준. 서보 펄스 544~2400 µs = 0~180° 환산: 1432 µs = 86.1°, 315 µs = 30.6°
+const ESC_PARAMS = { vmax: 280, tpm: 1584, sNeutral: 86.1, sMin: 54, sMax: 118, sGain: 0.655, sSign: -1, sTrim: 1 };
+const DEFAULT = () => {
+  const d = DEFAULT_LEGACY(), V5 = PWR("5V"), G = PWR("GND");
+  Object.assign(d.params, ESC_PARAMS);
+  d.comps = d.comps.map(c => c.type === "driver" ? { id: "esc", type: "esc", x: 4.5, y: -4.5, yaw: 90 } : c);
+  d.wires = [
+    // 조향 D9, ESC D6 (둘 다 Servo 라이브러리 → Timer5, 44~46 PWM 불가), 엔코더 A/B = D2(INT4)/D3(INT5) 4체배
+    ["steer.SIG", "D9"], ["esc.SIG", "D6"],
+    ["drive.ENCA", "D2"], ["drive.ENCB", "D3"], ["drive.M+", "esc.OUTA"], ["drive.M-", "esc.OUTB"],
+    ["drive.EVCC", V5[1]], ["drive.EGND", G[3]], ["esc.GND", G[4]],
+    ["steer.VCC", V5[2]], ["steer.GND", G[2]],
+  ].map(([from, to]) => ({ from, to, via: [] }));
+  return d;
 };
 
 let S = DEFAULT();
@@ -1005,7 +1033,7 @@ function canConnect(a, b) {
   const A = epInfo(a), B = epInfo(b);
   if (!A || !B || a === b) return { ok: false };
   if (A.mega && B.mega) return { ok: false, msg: "Mega 핀끼리는 연결하지 않습니다" };
-  if (A.mega || B.mega) { const C = A.mega ? B : A; return (C.req === "mout" || C.req === "min") ? { ok: false, msg: "모터 단자는 모터 드라이버 출력에 연결합니다" } : { ok: true }; }
+  if (A.mega || B.mega) { const C = A.mega ? B : A; return (C.req === "mout" || C.req === "min") ? { ok: false, msg: "모터 단자는 모터 드라이버·ESC 출력에 연결합니다" } : { ok: true }; }
   if (A.c.id === B.c.id) return { ok: false, msg: "같은 부품의 핀끼리는 연결하지 않습니다" };
   if (isPwr(A.req) && A.req === B.req) return { ok: true };
   if ((A.req === "mout" && B.req === "min") || (A.req === "min" && B.req === "mout")) return { ok: true };
@@ -1030,7 +1058,7 @@ function derive() {
   for (const w of S.wires) { (conn[w.from] ||= []).push(w.to); (conn[w.to] ||= []).push(w.from); }
   const megaOf = (id, key) => { const ids = conn[`${id}.${key}`] || []; const p = ids.map(i => megaPinById[i]).find(p => p && p.kind === "io"); return p ? p.n : -1; };
   const act = {};
-  for (const [k, id, key] of [["steer","steer","SIG"],["brake","brake","SIG"],["pwm","driver","PWM"],["dir","driver","DIR"],["encA","drive","ENCA"],["encB","drive","ENCB"],["rc1","rc","CH1"],["rc2","rc","CH2"],["rc3","rc","CH3"]])
+  for (const [k, id, key] of [["steer","steer","SIG"],["brake","brake","SIG"],["pwm","driver","PWM"],["dir","driver","DIR"],["esc","esc","SIG"],["encA","drive","ENCA"],["encB","drive","ENCB"],["rc1","rc","CH1"],["rc2","rc","CH2"],["rc3","rc","CH3"]])
     act[k] = comp(id) ? megaOf(id, key) : -1;
   const ir = [], us = [];
   for (const c of S.comps) {
@@ -1066,7 +1094,7 @@ function fromJSON(j) {
   if (!j || j.format !== "ir-linetracer-vehicle" || j.version !== 2) throw new Error("형식이 다릅니다 (format: ir-linetracer-vehicle, version 2)");
   const d = DEFAULT(), num = (v, dv) => Number.isFinite(+v) ? +v : dv;
   if (j.body) for (const k of ["L", "W", "front", "rear"]) d.body[k] = num(j.body[k], d.body[k]);
-  if (j.params) for (const k of Object.keys(d.params)) d.params[k] = num(j.params[k], d.params[k]);
+  if (j.params) { d.params = DEFAULT_PARAMS(); for (const k of Object.keys(d.params)) d.params[k] = num(j.params[k], d.params[k]); }   // 없는 키는 예전 기본값 (기존 차량 동작 유지)
   d.comps = (j.components || []).filter(c => TYPES[c.type]).map(c => ({ id: String(c.id), type: c.type, x: num(c.mount?.x, 0), y: num(c.mount?.y, 0), yaw: num(c.mount?.yaw, 0), ...(SWN[c.type] ? { sw: Array.from({ length: SWN[c.type] }, (_, i) => (c.sw || [])[i] ? 1 : 0) } : {}) }));
   if (!d.comps.some(c => c.type === "mega")) d.comps.unshift({ id: "mega", type: "mega", x: 13, y: 0, yaw: 0 });
   const hasComp = ep => { const [id, key] = ep.split("."), c = d.comps.find(c => c.id === id); return !!c && (TYPES[c.type].pins || []).some(p => p.key === key); };   // 부품과 그 핀이 모두 있어야 함
@@ -1079,7 +1107,7 @@ function fromJSON(j) {
 function validate() {
   const D = derive(), issues = [], badPins = new Set(), pinState = {};   // pinState["id.KEY"] = 'error'|'warn'
   const add = (lvl, msg, refs = []) => { issues.push({ lvl, msg }); refs.forEach(r => { if (pinState[r] !== "error") pinState[r] = lvl; }); };
-  const servoUsed = [D.act.steer, D.act.brake, ...D.us.map(u => u.servo)].some(p => p >= 0);
+  const servoUsed = [D.act.steer, D.act.brake, D.act.esc, ...D.us.map(u => u.servo)].some(p => p >= 0);
   const users = {};                                     // Mega io 핀 번호 → [{ref, label, cat}]
   // 전원 넷: 선으로 이어진 끝점 묶음 (부품 VCC/GND끼리 이어도 됨)
   const parent = {}, find = a => (parent[a] ??= a) === a ? a : (parent[a] = find(parent[a]));
@@ -1105,7 +1133,7 @@ function validate() {
     if (p.req === "mout" || p.req === "min") {
       const want = p.req === "mout" ? "min" : "mout";
       if (!tos.some(t => t.includes(".") && (() => { const [i, kk] = t.split("."); const q = comp(i) && pinDef(comp(i), kk); return q && q.req === want; })()))
-        add("warn", `${label}: ${p.req === "mout" ? "구동 모터 단자" : "모터 드라이버 출력"}에 미연결`, [ref]);
+        add("warn", `${label}: ${p.req === "mout" ? "구동 모터 단자" : "모터 드라이버·ESC 출력"}에 미연결`, [ref]);
       continue;
     }
     const megaTos = tos.filter(t => megaPinById[t]);
@@ -1139,6 +1167,7 @@ function validate() {
     else if (!groups.has("PCINT2 · Port K")) add("warn", `combined.ino는 PCIE2 / PCINT2_vect(Port K = A8~A15)만 사용 → 지금 핀(${[...groups][0]})이면 스케치의 PCIE·PCMSK·ISR 벡터도 바꿔야 함`, ["rc.CH1", "rc.CH2", "rc.CH3"]);
     else add("info", `RC PCINT 번호 ${rc.map(p => PCINT[p]).join(", ")} → 스케치의 PCMSK2를 (1<<PCINT${rc.map(p => PCINT[p]).join(")|(1<<PCINT")}), RC_PINS를 {${rc.map(pinName).join(", ")}}로 맞춰야 ISR이 펄스를 읽음`);
   }
+  if (D.act.esc >= 0) add("info", `ESC SIG ${pinName(D.act.esc)}: Servo.attach 후 writeMicroseconds(1000~2000), 중립 1500 µs. 전원 뒤 중립을 ${S.params.escArm ?? 500} ms 이상 보내야 무장됨`);
   if (D.act.encA >= 0 && EXTINT[D.act.encA]) add("info", EXTINT[D.act.encB] ? `엔코더 A ${pinName(D.act.encA)} = ${EXTINT[D.act.encA]}, B ${pinName(D.act.encB)} = ${EXTINT[D.act.encB]} → A·B 모두 CHANGE 인터럽트로 4체배 가능`
     : `엔코더 A ${pinName(D.act.encA)} = ${EXTINT[D.act.encA]} → B가 인터럽트 핀이 아니라 A 엣지만 셀 수 있음 (2체배)`);
   add("info", "Mega 헤더 핀 위치는 Rev3 도면 기준 근사값입니다.");
@@ -1167,7 +1196,7 @@ function buildPalette() {
 }
 function defaultSpot(type) {
   const B = S.body;
-  const spots = { dip: [18, -6, 0], tog: [18, -6, 0], ir5: [-B.rear - 2.5, 0, 180], ir11: [B.L + B.front - 0.5, 0, 0], steer: [4.5, 3.5, 0], brake: [21, 4.5, 0], drive: [1.5, 0, 90], driver: [4.5, -4.5, 90] };
+  const spots = { dip: [18, -6, 0], tog: [18, -6, 0], ir5: [-B.rear - 2.5, 0, 180], ir11: [B.L + B.front - 0.5, 0, 0], steer: [4.5, 3.5, 0], brake: [21, 4.5, 0], drive: [1.5, 0, 90], driver: [4.5, -4.5, 90], esc: [4.5, -4.5, 90] };
   if (type === "sus" || type === "slid") { const i = servoModCount(); return [[24, 0, 0], [-3, 0, 180]][i] || [15, 0, 0]; }
   if (type === "us" || type === "lid") { const i = S.comps.filter(c => c.type === "us" || c.type === "lid").length; return [[B.L + B.front - 1.5, 0, 0], [20, B.W / 2 - 1, 90], [20, -B.W / 2 + 1, -90], [-B.rear + 1.5, 0, 180]][i] || [15, 0, 0]; }
   return spots[type] || [15, 0, 0];
@@ -1228,7 +1257,7 @@ function applySchematic(quiet = false) {
   $("autoMsg").textContent = done.length ? "연결함: " + done.join(" · ") : "배치된 센서가 없습니다.";
   changed(true);
 }
-function makeDefault() { S = DEFAULT(); applySchematic(true); }
+function makeDefault(legacy = false) { S = legacy ? DEFAULT_LEGACY() : DEFAULT(); applySchematic(true); }
 function removeWire(i) { S.wires.splice(i, 1); sel = null; changed(true); }
 
 function buildSel() {
@@ -1255,7 +1284,7 @@ function buildSel() {
     h += `<div class="tbl-wrap"><table class="ch"><thead><tr><th>부품 핀</th><th>Mega</th><th>${c.type.startsWith("ir") ? "센서 x, y [cm]" : "필요"}</th><th></th></tr></thead><tbody>`;
     for (const p of compPins(c)) {
       const ref = `${c.id}.${p.key}`, tos = D.conn[ref] || [], st = V.pinState[ref];
-      let third = { analog: "A0~A15", digital: "디지털", pwm: "PWM 핀", servo: "디지털", extint: "INT 핀", pcint: "PCINT 핀", vcc: "5V", gnd: "GND", mout: "모터 M±", min: "드라이버 OUT" }[p.req];
+      let third = { analog: "A0~A15", digital: "디지털", pwm: "PWM 핀", servo: "디지털", extint: "INT 핀", pcint: "PCINT 핀", vcc: "5V", gnd: "GND", mout: "모터 M±", min: "드라이버/ESC OUT" }[p.req];
       if (p.sensor != null) { const [x, y] = toBodyC(c, ...irL(...IRMOD[c.type].sensors[p.sensor])); third = `${x.toFixed(1)}, ${y.toFixed(1)}`; }
       h += `<tr><td class="n">${p.label}</td><td class="${st ? "st-" + st : ""}">${tos.map(epName).join(", ") || "—"}</td><td class="n">${third}</td><td>${tos.length ? `<button type="button" data-unwire="${ref}" aria-label="${p.label} 연결 해제">✕</button>` : ""}</td></tr>`;
     }
@@ -1295,9 +1324,9 @@ function motorDerived(P) {                       // 정상상태 계산 (car-wor
   return `모터 Ke = Kt ${(Ke * 1000).toFixed(1)} mV·s/rad · 정지 토크 ${(Ke * P.vbat / P.mR * 1000).toFixed(0)} mN·m · PWM 255 실제 최고속도 약 ${vTop.toFixed(0)} cm/s · 출발 PWM 약 ${pwmStart.toFixed(0)} · 기계 시정수 약 ${tm.toFixed(2)} s. `;
 }
 function paramDerived() {
-  const P = S.params, cpr = P.ppr * 4 * P.gear, cpc = countsPerCm(P);
-  $("paramDerived").textContent = `엔코더 ${cpr} 카운트/바퀴 1회전 (4체배) · ${cpc.toFixed(2)} 카운트/cm. ` + motorDerived(P) +
-    `조향 ${P.sMin}°~${P.sMax}° → 바퀴 ${(P.sSign * P.sGain * (P.sMin - P.sNeutral)).toFixed(0)}°~${(P.sSign * P.sGain * (P.sMax - P.sNeutral)).toFixed(0)}° (좌 +). 서보 펄스 544~2400 µs = 0~180°.`;
+  const P = S.params, cpr = P.ppr * 4 * P.gear, cpc = countsPerCm(P), us = deg => Math.round(544 + deg / 180 * 1856);
+  $("paramDerived").textContent = (P.tpm > 0 ? `엔코더 실측 ${P.tpm} 카운트/m = ${cpc.toFixed(2)} 카운트/cm. ` : `엔코더 ${cpr} 카운트/바퀴 1회전 (4체배) · ${cpc.toFixed(2)} 카운트/cm. `) + motorDerived(P) +
+    `조향 ${P.sMin}°~${P.sMax}° → 바퀴 ${(P.sSign * P.sGain * (P.sMin - P.sNeutral)).toFixed(0)}°~${(P.sSign * P.sGain * (P.sMax - P.sNeutral)).toFixed(0)}° (좌 +). 서보 펄스 544~2400 µs = 0~180° → 중립 ${us(P.sNeutral)} µs, 범위 ${us(P.sMin)}~${us(P.sMax)} µs, 바퀴 1° = ${(1856 / 180 / P.sGain).toFixed(1)} µs.`;
 }
 function changed(full = true) {
   if (full) { renderValidation(); buildPalette(); buildSel(); }
@@ -1718,9 +1747,9 @@ const applyText = txt => { try { S = fromJSON(JSON.parse(txt)); sel = null; wiri
 $("ioApply").onclick = () => { const t = $("ioText"); if (t.hidden || !t.value.trim()) { t.hidden = false; t.value = ""; t.focus(); $("ioShow").classList.add("on"); ioMsg("아래 칸에 JSON을 붙여넣고 다시 누르세요."); return; } applyText(t.value); };
 $("ioFile").onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => applyText(r.result); r.readAsText(f); e.target.value = ""; };
 let resetArm = 0;
-$("ioReset").onclick = () => { if (Date.now() - resetArm > 3000) { resetArm = Date.now(); ioMsg("기본값(앞 11ch · 뒤 5ch, 센서는 회로도 배선)으로 되돌리려면 3초 안에 한 번 더 누르세요."); return; } makeDefault(); sel = null; buildBody(); changed(true); fit(); ioMsg("기본값으로 되돌렸습니다."); };
+$("ioReset").onclick = () => { if (Date.now() - resetArm > 3000) { resetArm = Date.now(); ioMsg("기본값(ESC · 앞 11ch · 뒤 5ch, 센서는 회로도 배선)으로 되돌리려면 3초 안에 한 번 더 누르세요."); return; } makeDefault(); sel = null; buildBody(); changed(true); fit(); ioMsg("기본값으로 되돌렸습니다."); };
 
-const countsPerCm = P => P.ppr * 4 * P.gear / (Math.PI * P.wheelD);
+const countsPerCm = P => P.tpm > 0 ? P.tpm / 100 : P.ppr * 4 * P.gear / (Math.PI * P.wheelD);
 
 // ================= 탭 전환 =================
 function showTab(t) {
@@ -1810,7 +1839,114 @@ void loop() {
   }
 }
 `;
-const SAMPLES = [["P 제어 (앞 11ch + 뒤 5ch)", SAMPLE_CODE]];
+const SAMPLE_ESC_CODE = `// 샘플 (ESC 차량): 앞 IR 11ch + 뒤 IR 5ch 가중평균 + 비례(P) 조향, 속도 PID (엔코더 틱/s → ESC µs)
+// 탭 1 기본 배선 기준 (ESC):
+//   조향 서보 D9: writeMicroseconds, 중앙 1432 µs, ±315 µs = 바퀴 ±20°, µs가 작을수록 왼쪽
+//   ESC D6: 1000~2000 µs, 중립 1500 µs. 전원 뒤 중립을 받아야 무장되므로 setup에서 1 s 중립
+//   엔코더 A/B D2/D3 (4체배 1584 틱/m), 앞 11ch A0~A10 (센서 0~10), 뒤 5ch A11~A15 (센서 1~5)
+// 속도 PID 게인·ESC 데드밴드 보정은 기본 하위제어기 코드와 같음 (kp 0.095, ki 0.19, esc_db 40)
+#include <Servo.h>
+
+#define LINE_IS_DARK 1
+const int STEER_PIN = 9, ESC_PIN = 6, ENC_A = 2, ENC_B = 3;
+const int SV_CENTER = 1432, SV_HALF = 315;        // 바퀴 ±20°
+const int ESC_NEUTRAL = 1500, ESC_DB = 40, DRIVE_US_MAX = 500;
+const float TICKS_PER_M = 1584.0;
+const float V_REF = 0.8 * TICKS_PER_M;            // 목표 속도 0.8 m/s [틱/s]
+const float KP_V = 0.095, KI_V = 0.19;            // [µs/(틱/s)], [µs/(틱/s)/s]
+const float KP = 4.7;                             // 조향 µs / mm (앞 위치 오차)
+const float KR = 2.4;                             // 조향 µs / mm (앞뒤 차이 = 방향 오차)
+
+const float FX[11] = {0, -12.5, 12.5, -37.5, 37.5, -62.5, 62.5, -87.5, 87.5, -112.5, 112.5};
+const float RX[5] = {47, 18, 0, -18, -47};        // 뒤 모듈을 뒤로 돌려 달아서 1번이 오른쪽
+
+Servo steer, esc;
+volatile long encCount = 0;
+volatile uint8_t encPrevAB = 0;
+long encPrev = 0;
+float lastF = 0, lastR = 0, vel = 0, inte = 0;
+int steerUs = SV_CENTER, escUs = ESC_NEUTRAL;
+unsigned long nextCtrl = 0;
+
+void encISR() {                                   // 4체배 상태표
+  static const int8_t T[16] = {0, -1, 1, 0, 1, 0, 0, -1, -1, 0, 0, 1, 0, 1, -1, 0};
+  uint8_t ab = (digitalRead(ENC_A) << 1) | digitalRead(ENC_B);
+  encCount += T[(encPrevAB << 2) | ab];
+  encPrevAB = ab;
+}
+
+bool linePos(int firstPin, int n, const float *x, float &pos) {
+  long sum = 0; float wsum = 0;
+  for (int i = 0; i < n; i++) {
+    int raw = analogRead(firstPin + i);
+    int s = LINE_IS_DARK ? 1023 - raw : raw;
+    if (s < 300) s = 0;
+    sum += s; wsum += x[i] * s;
+  }
+  if (sum <= 200) return false;
+  pos = wsum / sum;
+  return true;
+}
+
+// 구동 출력: 오프셋 [µs] → ESC (0이 아니면 데드밴드만큼 더함)
+void driveOutput(int off) {
+  off = constrain(off, -DRIVE_US_MAX, DRIVE_US_MAX);
+  if (off >= 2) escUs = ESC_NEUTRAL + min(off + ESC_DB, DRIVE_US_MAX);
+  else if (off <= -2) escUs = ESC_NEUTRAL - min(-off + ESC_DB, DRIVE_US_MAX);
+  else escUs = ESC_NEUTRAL;
+  esc.writeMicroseconds(escUs);
+}
+
+void setup() {
+  Serial.begin(115200);
+  esc.attach(ESC_PIN, 1000, 2000);
+  esc.writeMicroseconds(ESC_NEUTRAL);
+  steer.attach(STEER_PIN, 750, 2250);
+  steer.writeMicroseconds(SV_CENTER);
+  pinMode(ENC_A, INPUT_PULLUP); pinMode(ENC_B, INPUT_PULLUP);
+  encPrevAB = (digitalRead(ENC_A) << 1) | digitalRead(ENC_B);
+  attachInterrupt(digitalPinToInterrupt(ENC_A), encISR, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENC_B), encISR, CHANGE);
+  delay(1000);                                    // ESC 무장 (중립 유지)
+  Serial.println("ESC LINE TRACER READY");
+  nextCtrl = millis();
+}
+
+void loop() {
+  if ((long)(millis() - nextCtrl) < 0) return;    // 10 ms 주기
+  nextCtrl += 10;
+  const float dt = 0.01;
+
+  float eF = lastF, eR = lastR;
+  bool seeF = linePos(A0, 11, FX, eF);
+  bool seeR = linePos(A11, 5, RX, eR);
+  lastF = eF; lastR = eR;
+  float corr = KP * eF + (seeF && seeR ? KR * (eF - eR) : 0);
+  steerUs = constrain(SV_CENTER + (int)corr, SV_CENTER - SV_HALF, SV_CENTER + SV_HALF);
+  steer.writeMicroseconds(steerUs);
+
+  noInterrupts(); long c = encCount; interrupts();
+  vel += 0.4 * ((c - encPrev) / dt - vel);        // [틱/s]
+  encPrev = c;
+  float e = V_REF - vel, inNew = inte + e * dt;
+  float u = KP_V * e + KI_V * inNew;
+  if (u > DRIVE_US_MAX) u = DRIVE_US_MAX;
+  else if (u < 0) u = 0;                          // 전진만 (브레이크 안 씀)
+  else inte = inNew;                              // 포화 중에는 적분 멈춤
+  driveOutput((int)u);
+
+  static unsigned long t0 = 0;
+  if (millis() - t0 >= 200) {
+    t0 = millis();
+    Serial.print("eF="); Serial.print(eF, 1);
+    Serial.print(" v="); Serial.print(vel / TICKS_PER_M, 2);
+    Serial.print("m/s esc="); Serial.print(escUs);
+    Serial.print(" sv="); Serial.println(steerUs);
+  }
+}
+`;
+const SAMPLES = [["P 제어 (ESC 차량, 앞 11ch + 뒤 5ch)", SAMPLE_ESC_CODE], ["P 제어 (모터 드라이버 차량, 앞 11ch + 뒤 5ch)", SAMPLE_CODE]];
+const sampleFor = design => (design?.components || []).some(c => c.type === "esc") ? SAMPLE_ESC_CODE : SAMPLE_CODE;
 let MAPS = [], MAPS_READY = null;
 const SIM = { mapId: "N1_oval", speed: 1, cars: [], sel: null, follow: null, dock: "code", dockOpen: true };
 let simSeq = 1;
@@ -1879,7 +2015,7 @@ function addCar(design, o = {}) {
   if (SIM.cars.length >= MAX_CARS) { $("addMsg").textContent = `차는 최대 ${MAX_CARS}대까지 올릴 수 있습니다.`; return null; }
   try { fromJSON(design); } catch (e) { $("addMsg").textContent = "차량 설정을 읽지 못했습니다: " + e.message; return null; }
   const used = new Set(SIM.cars.map(c => c.color));
-  const id = simSeq++, car = { id, name: o.name || `${id}번 차`, color: o.color || CAR_COLORS.find(k => !used.has(k)) || "car1", design, code: o.code ?? SAMPLE_CODE,
+  const id = simSeq++, car = { id, name: o.name || `${id}번 차`, color: o.color || CAR_COLORS.find(k => !used.has(k)) || "car1", design, code: o.code ?? sampleFor(design),
     start: o.start || startSlot(SIM.cars.length), status: "stopped", worker: null, busy: false, hex: null, hexSrc: null, serial: [], serialTail: "", trail: [], err: "", hit: false };
   if (o.locked && o.hex) { car.locked = true; car.code = LOCKED_CODE; car.hex = o.hex; car.hexSrc = car.code; }   // 비공개 코드 차: 컴파일된 hex로만 주행
   if (o.kind === "dummy") { car.kind = "dummy"; car.code = ""; car.dSpeed = o.dSpeed ?? 80; }                    // 더미: 코드 없이 맵 선 추종
@@ -1944,7 +2080,7 @@ function onCarMsg(car, d) {
   car.busy = false;
   if (car.status === "stopped") return;
   const prev = car.pose;
-  car.pose = { x: d.x, y: d.y, yaw: d.yaw, v: d.v, delta: d.delta, servo: d.servo, pwm: d.pwm, t: d.t, slip: d.slip, usAng: d.usAng, usD: d.usD };
+  car.pose = { x: d.x, y: d.y, yaw: d.yaw, v: d.v, delta: d.delta, servo: d.servo, pwm: d.pwm, esc: d.esc, t: d.t, slip: d.slip, usAng: d.usAng, usD: d.usD };
   // 충돌: 다른 차 외곽과 겹치면 이번 이동을 되돌리고 멈춤
   car.hit = false;
   for (const o of SIM.cars) if (o !== car && o.status !== "hidden" && polysOverlap(footWorld(car, car.pose), footWorld(o, o.pose))) { car.hit = true; noteHit(car, o); break; }
@@ -2318,13 +2454,14 @@ function renderSel() {
   if ($("ssLayout")) $("ssLayout").onclick = () => startLayoutEdit(car);
   if ($("ssCode")) $("ssCode").onclick = () => { setDock("code"); $("dockDetail").scrollIntoView({ behavior: "smooth", block: "nearest" }); };
 }
+const ESC_MODE = { "-": "(무장 전)", N: "중립", F: "전진", B: "브레이크", R: "후진" };
 function tickSimUI() {                                        // 매 프레임 바뀌는 값만 갱신
   const car = selCar(); if (!car) return;
   const el = $("ssLive"); if (!el) return;
   const p = car.pose;
   el.textContent = car.status === "stopped" ? "정지 상태 · 보드에서 드래그해 출발 위치를 옮길 수 있습니다." :
     car.kind === "dummy" ? `더미 · ${(p.t || 0).toFixed(1)} s · ${(p.v || 0).toFixed(0)} cm/s · 조향 ${((p.delta || 0) / D2R).toFixed(0)}°${car.hit ? " · 충돌" : ""}` :
-    `MCU ${(p.t || 0).toFixed(1)} s · ${(p.v || 0).toFixed(0)} cm/s · 서보 ${(p.servo || 0).toFixed(0)}° · PWM ${p.pwm || 0}${p.slip ? (p.slip === 2 ? " · 뒤 미끄러짐" : " · 앞 미끄러짐") : ""}${car.hit ? " · 충돌" : ""}`;
+    `MCU ${(p.t || 0).toFixed(1)} s · ${(p.v || 0).toFixed(0)} cm/s · 서보 ${(p.servo || 0).toFixed(0)}° · ${p.esc ? `ESC ${p.esc.us || "—"} µs ${ESC_MODE[p.esc.m] || ""}` : `PWM ${p.pwm || 0}`}${p.slip ? (p.slip === 2 ? " · 뒤 미끄러짐" : " · 앞 미끄러짐") : ""}${car.hit ? " · 충돌" : ""}`;
 }
 
 // ---- 하단 차량 관리: 왼쪽 목록에서 고른 차의 코드 / Serial ----
@@ -2447,11 +2584,13 @@ $("allPause").onclick = () => SIM.cars.forEach(pauseCar);
 $("allStop").onclick = () => { recFinish(); SIM.cars.forEach(stopCar); };
 $("viewFit").onclick = fitSim;
 const addTab1 = () => { if (editingCar) { $("addMsg").textContent = "탭 1에서 레이아웃 편집을 먼저 끝내세요."; return; } const c = addCar(toJSON()); if (c) $("addMsg").textContent = `${c.name}을(를) 올렸습니다.`; };
-const sampleDesign = () => { const old = S; try { makeDefault(); return toJSON(); } finally { S = old; } };
-const addSample = () => { const c = addCar(sampleDesign(), { code: SAMPLE_CODE }); if (c) { c.name = `샘플 ${c.id}`; simSave(); renderSimUI(); $("addMsg").textContent = `${c.name}을(를) 올렸습니다 (탭 1과 상관없는 기본 차량).`; } };
-const addDummy = () => { const c = addCar(sampleDesign(), { kind: "dummy" }); if (c) { c.name = `더미 ${c.id}`; simSave(); renderSimUI(); $("addMsg").textContent = `${c.name}을(를) 올렸습니다. 코드 없이 선을 따라가며, 속도는 선택한 차 패널에서 바꿉니다.`; } };
+const sampleDesign = (legacy = false) => { const old = S; try { makeDefault(legacy); return toJSON(); } finally { S = old; } };
+const addSample = () => { const c = addCar(sampleDesign(), { code: SAMPLE_ESC_CODE }); if (c) { c.name = `샘플 ${c.id}`; simSave(); renderSimUI(); $("addMsg").textContent = `${c.name}을(를) 올렸습니다 (탭 1과 상관없는 기본 ESC 차량).`; } };
+const addSampleOld = () => { const c = addCar(sampleDesign(true), { code: SAMPLE_CODE }); if (c) { c.name = `샘플(드라이버) ${c.id}`; simSave(); renderSimUI(); $("addMsg").textContent = `${c.name}을(를) 올렸습니다 (예전 기본 차량: 모터 드라이버 PWM·DIR).`; } };
+const addDummy = () => { const c = addCar(sampleDesign(true), { kind: "dummy" }); if (c) { c.name = `더미 ${c.id}`; simSave(); renderSimUI(); $("addMsg").textContent = `${c.name}을(를) 올렸습니다. 코드 없이 선을 따라가며, 속도는 선택한 차 패널에서 바꿉니다.`; } };
 $("addDummy").onclick = addDummy; $("addDummy").onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); addDummy(); } };
 $("addSample").onclick = addSample; $("addSample").onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); addSample(); } };
+$("addSampleOld").onclick = addSampleOld; $("addSampleOld").onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); addSampleOld(); } };
 $("addFromTab1").onclick = addTab1; $("addFromTab1").onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); addTab1(); } };
 $("addFromFile").onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader();
   r.onload = () => { try { const c = addCar(JSON.parse(r.result)); if (c) $("addMsg").textContent = `${f.name} → ${c.name}`; } catch (err) { $("addMsg").textContent = "JSON을 읽지 못했습니다: " + err.message; } };
@@ -2621,7 +2760,7 @@ function renderGarage() {
 }
 async function takeFromGarage(e) {
   if (SIM.cars.length >= MAX_CARS) { gInfo(`맵에는 최대 ${MAX_CARS}대까지 올릴 수 있습니다. 한 대를 삭제하세요.`); return; }
-  let opts = { code: e.code || SAMPLE_CODE };
+  let opts = { code: e.code || sampleFor(e.design) };
   if (e.codePrivate) {
     if (e.mine && GARAGE.be.privateCode) {                     // 내 비공개 차는 원본 코드까지 가져옴
       try { const code = await GARAGE.be.privateCode(e.id); opts = code != null ? { code } : { locked: true, hex: e.hex }; }

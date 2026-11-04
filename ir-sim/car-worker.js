@@ -362,7 +362,8 @@ function boot() {
   const watch = (n, key) => { if (n < 0) return; const [p] = PINMAP[n]; const m = meas[key] = { hi: 0, per: 0, rise: 0, state: false };
     mega.port[p].addListener(() => { const s = mega.getPin(n), c = mega.cpu.cycles; if (s === m.state) return;
       if (s) { if (m.rise) m.per = (c - m.rise) / 16; m.rise = c; } else if (m.rise) m.hi = (c - m.rise) / 16; m.state = s; m.last = c; }); };
-  watch(act.steer, "steer"); watch(act.brake, "brake"); watch(act.pwm, "pwm");
+  if (act.esc == null) act.esc = -1;
+  watch(act.steer, "steer"); watch(act.brake, "brake"); watch(act.pwm, "pwm"); watch(act.esc, "esc");
   setDip(cfg.dip || []);
   // 초음파: TRIG 하강 엣지 → 그 순간 자세로 거리 계산 → ECHO 펄스 예약
   // 서보 + 초음파 모듈: 서보 SIG 펄스 → 각도(90° = 정면, + = 반시계), 속도 제한
@@ -388,7 +389,7 @@ function boot() {
   const P0 = cfg.params, uni = () => Math.random() * 2 - 1;
   irVar = cfg.ir.map(() => ({ g: 1 + (P0.irVar || 0) / 100 * uni(), o: (P0.irVar || 0) / 100 * 0.5 * (P0.irWhite - P0.irBlack) * uni() }));
   floorSeed = Math.random() * 1000;
-  veh = { x: cfg.start.x, y: cfg.start.y, yaw: cfg.start.yaw, v: 0, i: 0, vy: 0, r: 0, servo: cfg.params.sNeutral, wheel: cfg.params.sNeutral, q: 0, delta: 0, pwm: 0, dir: 0 };
+  veh = { x: cfg.start.x, y: cfg.start.y, yaw: cfg.start.yaw, v: 0, i: 0, vy: 0, r: 0, servo: cfg.params.sNeutral, wheel: cfg.params.sNeutral, q: 0, delta: 0, pwm: 0, dir: 0, esc: { armed: false, armT: 0, mode: "-", us: 0, f: 0 } };
   servoQ = [];
   trail = [[veh.x, veh.y]];
 }
@@ -442,6 +443,55 @@ function driveStep(P, duty, rev, brake, dt) {
   veh.v = v * 100; veh.i = i;
 }
 
+// ESC (RC 변속기): SIG 서보 펄스 1000~2000 µs, 중립 1500 µs ± escDb
+//   무장: 전원 뒤 중립 펄스가 escArm ms 이어져야 출력. 유효 펄스(800~2200 µs, 400 Hz 이하)가 100 ms 없으면 중립
+//   전진(F): 펄스 비율만큼 배터리 전압, 비동기(전류 역류 없음 → 스로틀을 줄이면 관성 주행)
+//   중립 아래: 앞으로 굴러가는 중이면 브레이크(B, 단락 제동 비율 = 펄스 비율 × escBrake %), 서 있으면 후진(R, 최대 escRev %)
+//   escLatch면 브레이크는 중립(또는 전진)으로 돌아올 때까지 유지 → 후진하려면 중립을 한 번 거쳐야 함
+//   중립(N): 드래그 브레이크 escDrag %
+const ESC_VSTOP = 3;                                           // 이 속도 [cm/s] 이하면 "서 있음"
+function escStep(P, dt) {
+  const E = veh.esc, m = meas.esc, c = mega.cpu.cycles;
+  const ok = m && m.last && c - m.last < 16000 * 100 && m.hi >= 800 && m.hi <= 2200 && m.per >= 2500;
+  E.us = ok ? m.hi : 0;
+  const db = P.escDb ?? 40, th = ok ? m.hi - 1500 : 0, span = Math.max(1, 500 - db);
+  if (!E.armed) { if (ok && Math.abs(th) <= db) { E.armT += dt * 1000; if (E.armT >= (P.escArm ?? 500)) E.armed = true; } else E.armT = 0; }
+  let mode = "N", f = 0;
+  if (E.armed && ok && th > db) { mode = "F"; f = clamp((th - db) / span, 0, 1); }
+  else if (E.armed && ok && th < -db) {
+    f = clamp((-th - db) / span, 0, 1);
+    mode = (E.mode === "B" && (P.escLatch ?? 1)) || veh.v > ESC_VSTOP ? "B" : "R";
+  }
+  E.mode = E.armed ? mode : "-"; E.f = f;
+  escDrive(P, mode, f, dt);
+}
+function escDrive(P, mode, f, dt) {
+  const r = P.wheelD / 200, gear = P.gear, m = P.mass || 1.5, g = 9.81;
+  const vbat = P.vbat || 7.4, R = Math.max(0.05, P.mR || 1.5), Lm = Math.max(1e-6, (P.mL ?? 0.1) / 1000);
+  const Ke = vbat / (gear * (P.vmax / 100) / r), Tf = (P.mFric || 0) / 1000;
+  const meq = m + (P.jEq || 0), Fmax = (P.mu || 1.0) * m * g * 0.5;
+  const N = 10, h = dt / N, te = Lm / R;
+  const sh = mode === "B" ? f * (P.escBrake ?? 75) / 100 : mode === "N" ? (P.escDrag ?? 0) / 100 : 0;   // 단락 제동 비율
+  const V = mode === "F" ? f * vbat : mode === "R" ? -f * vbat * (P.escRev ?? 35) / 100 : 0;
+  let v = veh.v / 100, i = veh.i || 0;
+  for (let k = 0; k < N; k++) {
+    const w = gear * v / r;
+    let iss = mode === "F" || mode === "R" ? (V - Ke * w) / R : -Ke * w * sh / R;
+    i = iss + (i - iss) * Math.exp(-h / te);
+    if (mode === "F") i = Math.max(0, i); else if (mode === "R") i = Math.min(0, i);   // 비동기 구동: 전류 역류 없음
+    const Fm = gear * Ke * i / r;
+    const Fres = gear * Tf / r + (P.crr ?? 0.03) * m * g;
+    let F = clamp(Fm, -Fmax, Fmax);
+    if (Math.abs(v) < 1e-4) {
+      if (Math.abs(F) <= Fres) { v = 0; continue; }
+      F -= Math.sign(F) * Fres;
+    } else F -= Math.sign(v) * Fres;
+    const v1 = v + F / meq * h;
+    v = (v !== 0 && Math.sign(v1) !== Math.sign(v) && (mode === "B" || mode === "N" || Math.abs(Fm) <= Fres)) ? 0 : v1;
+  }
+  veh.v = v * 100; veh.i = i;
+}
+
 function vehicleStep(dt, cycle0) {
   const P = cfg.params, act = cfg.act, c = mega.cpu.cycles;
   usServo.forEach((sv, i) => { if (!sv) return; const m = meas["us" + i];             // 초음파 서보: 약 500 °/s (SG90 급)
@@ -456,12 +506,15 @@ function vehicleStep(dt, cycle0) {
   veh.servo = P.sRate > 0 ? veh.servo + clamp(target - veh.servo, -P.sRate * dt, P.sRate * dt) : target;
   const bl = (P.sBacklash || 0) / 2;
   if (veh.servo - veh.wheel > bl) veh.wheel = veh.servo - bl; else if (veh.wheel - veh.servo > bl) veh.wheel = veh.servo + bl;
-  const mp = meas.pwm;
-  let duty = 0; if (mp) duty = fresh(mp, c) && mp.per > 0 ? mp.hi / mp.per : (mp.state ? 1 : 0);
-  const pwm = Math.round(duty * 255), rev = act.dir >= 0 && (mega.getPin(act.dir) === !!P.dirRev);
-  const mb = meas.brake, brake = !!(mb && fresh(mb, c) && servoDeg(mb.hi) >= 20);
-  driveStep(P, duty, rev, brake, dt);
-  veh.pwm = pwm; veh.dir = rev ? 1 : 0;
+  if (act.esc >= 0) escStep(P, dt);                         // ESC 차량 (모터 드라이버 대신)
+  else {
+    const mp = meas.pwm;
+    let duty = 0; if (mp) duty = fresh(mp, c) && mp.per > 0 ? mp.hi / mp.per : (mp.state ? 1 : 0);
+    const pwm = Math.round(duty * 255), rev = act.dir >= 0 && (mega.getPin(act.dir) === !!P.dirRev);
+    const mb = meas.brake, brake = !!(mb && fresh(mb, c) && servoDeg(mb.hi) >= 20);
+    driveStep(P, duty, rev, brake, dt);
+    veh.pwm = pwm; veh.dir = rev ? 1 : 0;
+  }
   const d = P.sSign * P.sGain * (veh.wheel - P.sNeutral - (P.sTrim || 0)) * D2R;
   veh.delta = d;
   const L = cfg.body.L / 100, vx = veh.v / 100;             // SI
@@ -494,7 +547,7 @@ function vehicleStep(dt, cycle0) {
   veh.x += (vx * co - vRy * si) * 100 * dt; veh.y += (vx * si + vRy * co) * 100 * dt;
   veh.yaw = Math.atan2(Math.sin(veh.yaw + veh.r * dt), Math.cos(veh.yaw + veh.r * dt));
   if (act.encA >= 0 || act.encB >= 0) {                    // 엔코더 쿼드러처 엣지를 이번 1 ms 안 시각에 예약
-    const cpc = P.ppr * 4 * P.gear / (Math.PI * P.wheelD);
+    const cpc = P.tpm > 0 ? P.tpm / 100 : P.ppr * 4 * P.gear / (Math.PI * P.wheelD);   // 실측 카운트/m가 있으면 그 값
     const dq = ds * cpc * (P.aLeads ? 1 : -1), q0 = veh.q, q1 = q0 + dq;
     const setAB = n => { const m = ((n % 4) + 4) % 4; if (act.encA >= 0) mega.setPin(act.encA, m === 1 || m === 2); if (act.encB >= 0) mega.setPin(act.encB, m === 2 || m === 3); };
     if (dq > 0) for (let n = Math.floor(q0) + 1; n <= Math.floor(q1); n++) mega.at(cycle0 + (n - q0) / dq * 16000, () => setAB(n));
@@ -527,7 +580,8 @@ function usView() {
 }
 
 function state() {
-  const out = { type: "state", usD: usView(), x: veh.x, y: veh.y, yaw: veh.yaw, v: veh.v, slip: veh.slip || 0, usAng: usServo.map(s => s ? (s.ang - 90) * D2R : 0), delta: veh.delta, servo: veh.servo, pwm: veh.pwm, dir: veh.dir, t: mega.cpu.cycles / 16e6, serial, trail };
+  const out = { type: "state", usD: usView(), x: veh.x, y: veh.y, yaw: veh.yaw, v: veh.v, slip: veh.slip || 0, usAng: usServo.map(s => s ? (s.ang - 90) * D2R : 0), delta: veh.delta, servo: veh.servo, pwm: veh.pwm, dir: veh.dir,
+    ...(cfg.act.esc >= 0 ? { esc: { us: Math.round(veh.esc.us), m: veh.esc.mode, f: +veh.esc.f.toFixed(2) } } : {}), t: mega.cpu.cycles / 16e6, serial, trail };
   serial = ""; trail = [];
   return out;
 }
