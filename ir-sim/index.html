@@ -68,7 +68,8 @@ kbd { font-family: var(--font-num); font-size: 11px; border: 1px solid var(--lin
 .race-tbl th, .race-tbl td { border-bottom: 1px solid var(--line); padding: 3px 4px; text-align: left; }
 .race-tower { position: absolute; left: 10px; top: 10px; background: color-mix(in srgb, var(--bg) 88%, transparent); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font-size: 12px; font-variant-numeric: tabular-nums; min-width: 230px; max-width: calc(100% - 20px); }
 .race-tower .rt-h { font-weight: 600; margin-bottom: 4px; }
-.race-tower .rt-r { display: grid; grid-template-columns: 16px 8px minmax(50px, 1fr) 22px 44px 62px 32px auto; gap: 6px; align-items: center; line-height: 1.6; }
+.race-tower .rt-l { color: var(--muted); font-size: 10.5px; }
+.race-tower .rt-r { display: grid; grid-template-columns: 16px 8px minmax(50px, 1fr) 22px 44px 62px 28px 32px auto; gap: 6px; align-items: center; line-height: 1.6; }
 .race-tower .rt-r i { width: 8px; height: 8px; border-radius: 2px; }
 .race-tower .rt-n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .race-tower .rt-p { color: var(--err); }
@@ -714,7 +715,7 @@ canvas#logCv { display: block; width: 100%; height: max(360px, calc(100dvh - 150
         <p class="sub" style="margin:8px 0 0">그리드 (1번 = 폴, 1·2차로 번갈아)</p>
         <ol class="race-grid" id="raceGrid"></ol>
         <div class="row" style="gap:6px"><button type="button" id="raceGo" class="primary">경기 시작</button><button type="button" id="raceEnd">경기 끝내기</button></div>
-        <p class="sub" style="margin:6px 0 0">이탈(앞 IR 센서열 중심이 차로 영역 밖 10 cm, 1 s)·멈춤(5 s) → 가장 가까운 흰 선으로 복귀·Mega 리셋 +10 s. 충돌: 같은 차로 뒤차, 차로 변경 중이면 둘 다 +5 s. 경기는 자동으로 로그 녹화</p>
+        <p class="sub" style="margin:6px 0 0">이탈(앞 IR 센서열 중심이 차로 영역 밖 30 cm 넘으면 바로, 10~30 cm면 3 s)·멈춤(5 s) → 가장 가까운 흰 선으로 복귀·Mega 리셋 +10 s. 충돌: 같은 차로 뒤차, 차로 변경 중이면 둘 다 +10 s. 경기는 자동으로 로그 녹화</p>
         <p class="msg" id="raceMsg"></p>
         <div id="raceResult"></div>
       </div>
@@ -2939,11 +2940,11 @@ async function recFinish(why) {
 $("recTog").onchange = () => { if (!$("recTog").checked) recFinish(); recShow(); };
 
 // ================= 기록모드 (설계: claude/race_record_mode.md, 판정 로직: race.js) =================
-// F1 결승 규칙: 그리드 출발, 신호 5개 소등 = 시각 0 + Mega 동시 부팅, N랩. 이탈(앞 IR 센서열 중심이 허용 영역 밖 10 cm 초과 1 s)·멈춤(5 s) → 복귀 +10 s,
-// 충돌 → 같은 차로 뒤차 / 변경 중이면 둘 다 +5 s. 기록은 시뮬레이션 시각. 차 6대(코드 차 2대)
+// F1 결승 규칙: 그리드 출발, 신호 5개 소등 = 시각 0 + Mega 동시 부팅, N랩. 이탈(앞 IR 센서열 중심이 허용 영역 밖 30 cm 초과 즉시, 10 cm 초과 3 s)·멈춤(5 s) → 복귀 +10 s,
+// 충돌 → 같은 차로 뒤차 / 변경 중이면 둘 다 +10 s. 기록은 시뮬레이션 시각. 차 6대(코드 차 2대)
 const RACE_MAPS = ["R5_monza_like", "R6_yeongam", "R7_monza_3lane", "R8_yeongam_3lane"];
 const RACE = { on: false, laps: 3, auto: true, seed: 1, phase: "idle", t: 0, lt: 0, track: null, trackId: null, leaderT: null, rows: null, pair: {}, toast: null, towerAt: 0 };
-const RACE_DT = 30, RACE_REC_PEN = 10000, RACE_HIT_PEN = 5000, RACE_HIT_GAP = 2000, RACE_WAIT = 60000, RACE_OUT_MS = 5700;
+const RACE_DT = 30, RACE_REC_PEN = 10000, RACE_HIT_PEN = 10000, RACE_HIT_GAP = 2000, RACE_WAIT = 60000, RACE_OUT_MS = 5700;
 const maxCars = () => RACE.on ? 6 : 4;
 const isCode = c => c.kind !== "dummy";
 const fmtT = ms => ms == null || !isFinite(ms) ? "—" : `${Math.floor(ms / 60000)}:${((ms % 60000) / 1000).toFixed(3).padStart(6, "0")}`;
@@ -3098,15 +3099,15 @@ function raceHit(car, o) {
   const info = (c, x) => ({ id: c.id, dummy: !isCode(c), s: c.race.s, d: c.race.d, v: c.pose.v || 0, lane: c.race.lane, changing: c.race.hist.changing(RACE.t),
     contactFront: toCarFrame(c.pose, x.pose.x + x.cfg.body.L / 2 * Math.cos(x.pose.yaw), x.pose.y + x.cfg.body.L / 2 * Math.sin(x.pose.yaw))[0] > c.cfg.body.L / 2 });   // 상대 차 중심이 내 앞 절반에 있으면 앞으로 받음
   const r = Race.judgeHit(info(car, o), info(o, car), { L: raceTrack().L });
-  for (const id of r.penalized) { const c = SIM.cars.find(x => x.id === id); c.race.penalty += RACE_HIT_PEN; raceEvent(c, { t: RACE.t, type: "pen5", value: RACE_HIT_PEN }); }
-  if (r.penalized.length) raceToast(`충돌 (${r.reason === "rear" ? "후방 추돌" : "차로 변경 중"}) → ${r.penalized.map(id => SIM.cars.find(x => x.id === id).name).join(", ")} +5 s`);
+  for (const id of r.penalized) { const c = SIM.cars.find(x => x.id === id); c.race.penalty += RACE_HIT_PEN; raceEvent(c, { t: RACE.t, type: "hit", value: RACE_HIT_PEN }); }
+  if (r.penalized.length) raceToast(`충돌 (${r.reason === "rear" ? "후방 추돌" : "차로 변경 중"}) → ${r.penalized.map(id => SIM.cars.find(x => x.id === id).name).join(", ")} +${RACE_HIT_PEN / 1000} s`);
   else if (r.reason === "side") raceEvent(car, { t: RACE.t, type: "side", value: o.id });
 }
 function raceRows() {
   return Race.classify(SIM.cars.filter(c => isCode(c) && c.race).map(c => { const ev = c.race.events, lapEv = ev.filter(e => e.type === "lap");
     const n = k => ev.filter(e => e.type === k).length;
     return { id: c.id, name: c.name, laps: c.race.lap.laps, finishT: c.race.finishT ?? lapEv.at(-1)?.t ?? null, penalty: c.race.penalty, best: c.race.lap.best,
-      note: [n("recover") && `이탈 복귀 ${n("recover")}`, n("stall") && `멈춤 복귀 ${n("stall")}`, n("pen5") && `충돌 ${n("pen5")}`].filter(Boolean).join(" · ") || "—" }; }));
+      note: [n("recover") && `이탈 복귀 ${n("recover")}`, n("stall") && `멈춤 복귀 ${n("stall")}`, n("hit") && `충돌 ${n("hit")}`].filter(Boolean).join(" · ") || "—" }; }));
 }
 function raceFinish() {
   RACE.rows = raceRows(); RACE.phase = "done";
@@ -3125,11 +3126,11 @@ function renderTower(force) {                                     // 순위표: 
   const now = performance.now(); if (!force && now - RACE.towerAt < 200) return; RACE.towerAt = now;
   const cars = SIM.cars.filter(c => isCode(c) && c.race).sort((a, b) => (b.race.finishT != null) - (a.race.finishT != null) || b.race.prog - a.race.prog);
   el.hidden = false;
-  el.innerHTML = `<div class="rt-h">${RACE.phase === "done" ? "결과" : `랩 ${Math.min(RACE.laps, Math.max(0, ...cars.map(c => c.race.lap.laps + 1)))}/${RACE.laps}`} · ${fmtT(RACE.t)}</div>` + cars.map((c, i) => {
+  el.innerHTML = `<div class="rt-h">${RACE.phase === "done" ? "결과" : `랩 ${Math.min(RACE.laps, Math.max(0, ...cars.map(c => c.race.lap.laps + 1)))}/${RACE.laps}`} · ${fmtT(RACE.t)}</div><div class="rt-r rt-l"><b></b><i></i><span>차</span><span>랩</span><span>간격</span><span>최고 랩</span><span>이탈</span><span>페널티</span></div>` + cars.map((c, i) => {
     const R = c.race, a = cars[i - 1]; let gap = "";
     if (a) { const at = a.race.marks[Math.floor(R.prog / 50)]; gap = at != null ? `+${((RACE.t - at) / 1000).toFixed(1)}` : ""; }
     const st = R.finishT != null ? "🏁" : R.offFlag ? `<button type="button" data-rcv="${c.id}">복귀</button>` : "";
-    return `<div class="rt-r"><b>${i + 1}</b><i style="background:var(--${c.color})"></i><span class="rt-n">${esc(c.name)}</span><span>${R.lap.laps}</span><span>${gap}</span><span>${fmtT(R.lap.best)}</span><span class="rt-p">${R.penalty ? "+" + R.penalty / 1000 : ""}</span>${st}</div>`; }).join("");
+    return `<div class="rt-r"><b>${i + 1}</b><i style="background:var(--${c.color})"></i><span class="rt-n">${esc(c.name)}</span><span>${R.lap.laps}</span><span>${gap}</span><span>${fmtT(R.lap.best)}</span><span>${R.events.filter(e => e.type === "recover").length || ""}</span><span class="rt-p">${R.penalty ? "+" + R.penalty / 1000 : ""}</span>${st}</div>`; }).join("");
   el.querySelectorAll("[data-rcv]").forEach(b => b.onclick = () => { const c = SIM.cars.find(x => x.id === +b.dataset.rcv); if (c?.race?.offFlag) raceRecover(c, c.race.offFlag); });
 }
 $("raceGo").onclick = raceGo;
@@ -3224,15 +3225,15 @@ function logPose() {                                             // t 시각 위
 }
 function logTower(t) {                                           // 기록모드 경기 로그: 그 시각의 랩·페널티 (끝나면 결과 순위)
   const el = $("logTower"), rc = LOGP.race; if (!rc) { el.hidden = true; return; }
-  const st = LOGP.cars.map((c, i) => ({ c, i, laps: 0, pen: 0, best: null, last: 0 }));
+  const st = LOGP.cars.map((c, i) => ({ c, i, laps: 0, pen: 0, best: null, last: 0, off: 0 }));
   for (const e of LOGP.R || []) { if (e.t > t) break; const s = st[e.i]; if (!s) continue;
-    if (e.type === "lap") { s.laps++; s.last = e.t; if (s.best == null || e.v < s.best) s.best = e.v; } else if (e.type === "recover" || e.type === "stall" || e.type === "pen5") s.pen += e.v || 0; }
+    if (e.type === "lap") { s.laps++; s.last = e.t; if (s.best == null || e.v < s.best) s.best = e.v; } else if (e.type === "recover" || e.type === "stall" || e.type === "hit" || e.type === "pen5") { s.pen += e.v || 0; if (e.type === "recover") s.off++; } }
   const fin = t >= LOGP.dur && rc.rows?.length;
   const rows = st.filter(s => LOGP.entry?.meta?.cars?.[s.i]?.kind !== "dummy")
     .sort(fin ? (a, b) => (rc.rows.find(r => r.i === a.i)?.pos ?? 99) - (rc.rows.find(r => r.i === b.i)?.pos ?? 99) : (a, b) => b.laps - a.laps || a.last - b.last);
   el.hidden = false;
-  el.innerHTML = `<div class="rt-h">${fin ? "결과" : `랩 ${Math.min(rc.laps, Math.max(0, ...rows.map(s => s.laps + 1)))}/${rc.laps}`} · 시드 ${rc.seed}</div>` + rows.map((s, k) => { const r = fin ? rc.rows.find(x => x.i === s.i) : null;
-    return `<div class="rt-r"><b>${k + 1}</b><i style="background:var(--${s.c.color})"></i><span class="rt-n">${esc(s.c.name)}</span><span>${s.laps}</span><span>${r ? fmtT(r.total) : ""}</span><span>${fmtT(s.best)}</span><span class="rt-p">${s.pen ? "+" + s.pen / 1000 : ""}</span></div>`; }).join("");
+  el.innerHTML = `<div class="rt-h">${fin ? "결과" : `랩 ${Math.min(rc.laps, Math.max(0, ...rows.map(s => s.laps + 1)))}/${rc.laps}`} · 시드 ${rc.seed}</div><div class="rt-r rt-l"><b></b><i></i><span>차</span><span>랩</span><span>${fin ? "합계" : ""}</span><span>최고 랩</span><span>이탈</span><span>페널티</span></div>` + rows.map((s, k) => { const r = fin ? rc.rows.find(x => x.i === s.i) : null;
+    return `<div class="rt-r"><b>${k + 1}</b><i style="background:var(--${s.c.color})"></i><span class="rt-n">${esc(s.c.name)}</span><span>${s.laps}</span><span>${r ? fmtT(r.total) : ""}</span><span>${fmtT(s.best)}</span><span>${s.off || ""}</span><span class="rt-p">${s.pen ? "+" + s.pen / 1000 : ""}</span></div>`; }).join("");
 }
 const fmtS = ms => (ms / 1000).toFixed(1);
 function logUI() {

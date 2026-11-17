@@ -66,13 +66,15 @@ const Race = (() => {
   }
 
   // ---------- 이탈·멈춤 ----------
-  function makeOffTrack(track, { margin = 10, holdMs = 1000, stallMs = 5000, stallV = 2 } = {}) {
+  // 허용 영역(1차로 선 ~ 가장 바깥 흰 선) 밖으로 hardMargin 넘으면 바로 이탈, margin~hardMargin이면 holdMs 이어질 때 이탈
+  function makeOffTrack(track, { margin = 10, hardMargin = 30, holdMs = 3000, stallMs = 5000, stallV = 2 } = {}) {
     let outSince = null, stillSince = null, hint = -1;
     return {
       update(t, x, y, v) {
         const p = track.project(x, y, hint); hint = p.i;
-        const out = p.d < -margin || p.d > track.outerAt(p.s) + margin;
-        if (out) { stillSince = null; if (outSince == null) outSince = t; return t - outSince >= holdMs ? "off" : "candidate"; }
+        const over = Math.max(-p.d, p.d - track.outerAt(p.s));   // 영역 밖으로 나간 거리 (안이면 음수)
+        if (over > hardMargin) { stillSince = null; return "off"; }
+        if (over > margin) { stillSince = null; if (outSince == null) outSince = t; return t - outSince >= holdMs ? "off" : "candidate"; }
         outSince = null;
         if (Math.abs(v) < stallV) { if (stillSince == null) stillSince = t; if (t - stillSince >= stallMs) return "stall"; } else stillSince = null;
         return "ok";
