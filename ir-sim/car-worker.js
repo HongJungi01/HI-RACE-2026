@@ -128,7 +128,10 @@ function reflAt(x, y) {
 // ---------------- 초음파 2D 모델 (ultrasonic_sensor.py 포팅) ----------------
 const US = { beamHalf: 15, specW: 10, diffuse: 0.02, threshold: 0.3, span: 60, step: 0.5, rMin: 2, rMax: 400, window: 5, noiseBase: 0.2, noiseGain: 0.003 };
 const LN2 = Math.log(2);
-const randn = () => { let u = 0, v = 0; while (!u) u = Math.random(); while (!v) v = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+// 난수: cfg.seed가 있으면(기록모드) 시드 난수 → 같은 시드·같은 코드면 같은 결과. 없으면 Math.random
+let rnd = Math.random;
+const mulberry32 = a => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+const randn = () => { let u = 0, v = 0; while (!u) u = rnd(); while (!v) v = rnd(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
 function usMeasure(sx, sy, heading, segs) {
   if (!segs.length) return null;
   const nb = US.rMax + 20, bins = new Float64Array(nb);
@@ -204,8 +207,8 @@ function llDefaults(L) {
   L.dist = 1; L.peak = false; L.sig = 0; L.ptr = 0; L.first = false; L.busyUntil = 0; L.pend = null;
 }
 function newLidar(u) {
-  const P = cfg.params, uni = () => Math.random() * 2 - 1;
-  const L = { u, regs: new Uint8Array(128), unit: (Math.random() * 65536) | 0, power: true, bootUntil: LL_BOOT_MS * 16000,
+  const P = cfg.params, uni = () => rnd() * 2 - 1;
+  const L = { u, regs: new Uint8Array(128), unit: (rnd() * 65536) | 0, power: true, bootUntil: LL_BOOT_MS * 16000,
     bias: uni() * (P.llBias ?? 2), scale: uni() * 0.005, nearK: uni(), pulse: false, mon: false };
   llDefaults(L); return L;
 }
@@ -352,6 +355,7 @@ const servoDeg = us => (us - 544) / (2400 - 544) * 180;
 const fresh = (m, c) => m && m.last && c - m.last < 16000 * 50;
 
 function boot() {
+  rnd = cfg.seed != null ? mulberry32(cfg.seed) : Math.random;
   mega = new Mega(hexText);
   meas = {}; serial = ""; pinState = {}; usLast = [];
   const act = cfg.act;
@@ -386,9 +390,9 @@ function boot() {
     if (u.en >= 0) mega.port[PINMAP[u.en][0]].addListener(() => powerPoll(L));
   }
   attachTwi(twiDev);
-  const P0 = cfg.params, uni = () => Math.random() * 2 - 1;
+  const P0 = cfg.params, uni = () => rnd() * 2 - 1;
   irVar = cfg.ir.map(() => ({ g: 1 + (P0.irVar || 0) / 100 * uni(), o: (P0.irVar || 0) / 100 * 0.5 * (P0.irWhite - P0.irBlack) * uni() }));
-  floorSeed = Math.random() * 1000;
+  floorSeed = rnd() * 1000;
   veh = { x: cfg.start.x, y: cfg.start.y, yaw: cfg.start.yaw, v: 0, i: 0, vy: 0, r: 0, servo: cfg.params.sNeutral, wheel: cfg.params.sNeutral, q: 0, delta: 0, pwm: 0, dir: 0, esc: { armed: false, armT: 0, mode: "-", us: 0, f: 0 } };
   servoQ = [];
   trail = [[veh.x, veh.y]];
@@ -573,8 +577,10 @@ function usView() {
     }
     if (u.trig < 0 && u.echo < 0) return [null, 0];
     if (!probe) return null;                                  // 선택 안 된 차는 화면용 측정 생략 (CPU 절약)
-    const sx = veh.x + u.x * co - u.y * si, sy = veh.y + u.x * si + u.y * co;
+    const sx = veh.x + u.x * co - u.y * si, sy = veh.y + u.x * si + u.y * co, r0 = rnd;
+    rnd = Math.random;                                        // 화면용 측정은 시드 난수를 안 씀 (어느 차를 선택했는지가 결과를 바꾸지 않게)
     const d = usMeasure(sx, sy, veh.yaw + u.yaw + (usServo[ui] ? (usServo[ui].ang - 90) * D2R : 0), others);
+    rnd = r0;
     return [d == null ? null : +d.toFixed(1), 0];
   });
 }

@@ -7,7 +7,7 @@
 <style>
 /* Layout: 상단 탭 → 탭 1은 좌측 차량 탑뷰(실척 Mega + 부품 + 배선) + 우측 부품 팔레트·속성·검증, 탭 2는 펌웨어 실행. 좁은 화면은 세로로 쌓음 */
 :root {
-  --car1: #e5484d; --car2: #2563eb; --car3: #d97706; --car4: #7c3aed;
+  --car1: #e5484d; --car2: #2563eb; --car3: #d97706; --car4: #7c3aed; --car5: #0d9488; --car6: #db2777;
   --bg: #eef0ec; --panel: #ffffff; --field: #f7f8f5; --grid: #dfe3dc; --grid-major: #c3cabf;
   --fg: #1d2420; --muted: #66706a; --line: #d4d9d1; --accent: #1f7a5a; --car: #1d2420; --front: #c2410c;
   --pcb: #3b6d11; --pcb-edge: #27500a; --pcb11: #185fa5; --pcb11-edge: #0c447c; --pad: #2c2c2a; --gold: #d98a16; --beam: rgba(37,99,235,.12); --beam-edge: rgba(37,99,235,.5); --us: #2563eb;
@@ -23,14 +23,14 @@
   --pcb: #3f7a1c; --pcb-edge: #6aa53a; --pcb11: #1f6fbf; --pcb11-edge: #6fb0ef; --pad: #0d0f0e; --gold: #f0a63a; --beam: rgba(96,165,250,.13); --beam-edge: rgba(96,165,250,.55); --us: #60a5fa;
   --mega: #1f7fa3; --mega-edge: #5fb8d8; --header: #0b0d0c; --part: #9c815c; --part-edge: #d1b48a;
   --w-ir: #5bd27a; --w-us: #6aa8ff; --w-act: #ff9a57; --w-rc: #f2c14e; --w-vcc: #ff6b5e; --w-gnd: #c9d1cc;
-  --car1: #ff6b6b; --car2: #6aa8ff; --car3: #f2a93b; --car4: #b48cff; --err: #ff8a80; --err-bg: #3a1d1b; --warn: #f2c14e; --warn-bg: #352c14; --ok: #4cc39a; --ok-bg: #16302a; --info-bg: #20262a; color-scheme: dark } }
+  --car1: #ff6b6b; --car2: #6aa8ff; --car3: #f2a93b; --car4: #b48cff; --car5: #3fc7b5; --car6: #f472b6; --err: #ff8a80; --err-bg: #3a1d1b; --warn: #f2c14e; --warn-bg: #352c14; --ok: #4cc39a; --ok-bg: #16302a; --info-bg: #20262a; color-scheme: dark } }
 :root[data-theme="dark"] {
   --bg: #121614; --panel: #1a1f1c; --field: #161a18; --grid: #232a26; --grid-major: #34403a;
   --fg: #e3e8e4; --muted: #8e9993; --line: #2c3530; --accent: #4cc39a; --car: #e3e8e4; --front: #fb923c;
   --pcb: #3f7a1c; --pcb-edge: #6aa53a; --pcb11: #1f6fbf; --pcb11-edge: #6fb0ef; --pad: #0d0f0e; --gold: #f0a63a; --beam: rgba(96,165,250,.13); --beam-edge: rgba(96,165,250,.55); --us: #60a5fa;
   --mega: #1f7fa3; --mega-edge: #5fb8d8; --header: #0b0d0c; --part: #9c815c; --part-edge: #d1b48a;
   --w-ir: #5bd27a; --w-us: #6aa8ff; --w-act: #ff9a57; --w-rc: #f2c14e; --w-vcc: #ff6b5e; --w-gnd: #c9d1cc;
-  --car1: #ff6b6b; --car2: #6aa8ff; --car3: #f2a93b; --car4: #b48cff; --err: #ff8a80; --err-bg: #3a1d1b; --warn: #f2c14e; --warn-bg: #352c14; --ok: #4cc39a; --ok-bg: #16302a; --info-bg: #20262a; color-scheme: dark }
+  --car1: #ff6b6b; --car2: #6aa8ff; --car3: #f2a93b; --car4: #b48cff; --car5: #3fc7b5; --car6: #f472b6; --err: #ff8a80; --err-bg: #3a1d1b; --warn: #f2c14e; --warn-bg: #352c14; --ok: #4cc39a; --ok-bg: #16302a; --info-bg: #20262a; color-scheme: dark }
 
 html, body { min-height: 100%; }
 [hidden] { display: none !important; }
@@ -58,6 +58,27 @@ kbd { font-family: var(--font-num); font-size: 11px; border: 1px solid var(--lin
 
 .panel { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.race-grid { list-style: none; margin: 4px 0 8px; padding: 0; display: grid; gap: 3px; }
+.race-grid li { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.race-grid li i { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+.race-grid li span:first-of-type { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.race-grid button { padding: 0 6px; min-height: 22px; }
+.race-tbl { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-top: 8px; font-variant-numeric: tabular-nums; }
+.race-tbl caption { text-align: left; font-weight: 600; padding-bottom: 4px; }
+.race-tbl th, .race-tbl td { border-bottom: 1px solid var(--line); padding: 3px 4px; text-align: left; }
+.race-tower { position: absolute; left: 10px; top: 10px; background: color-mix(in srgb, var(--bg) 88%, transparent); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font-size: 12px; font-variant-numeric: tabular-nums; min-width: 230px; max-width: calc(100% - 20px); }
+.race-tower .rt-h { font-weight: 600; margin-bottom: 4px; }
+.race-tower .rt-r { display: grid; grid-template-columns: 16px 8px minmax(50px, 1fr) 22px 44px 62px 32px auto; gap: 6px; align-items: center; line-height: 1.6; }
+.race-tower .rt-r i { width: 8px; height: 8px; border-radius: 2px; }
+.race-tower .rt-n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.race-tower .rt-p { color: var(--err); }
+.race-tower button { padding: 0 6px; min-height: 20px; font-size: 11px; }
+.race-lights { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); display: flex; gap: 8px; background: #111; padding: 8px 10px; border-radius: 10px; }
+.race-lights i { width: 22px; height: 22px; border-radius: 50%; background: #333; }
+.race-lights i.on { background: #e5484d; box-shadow: 0 0 10px #e5484d; }
+.race-toast { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 6px 12px; border-radius: 8px; font-size: 12.5px; max-width: calc(100% - 20px); }
+#raceCard, .race-on .free-only, .race-live .carrow .ctl button:not(.eye) { display: none; }
+.race-on #raceCard { display: block; }
 .card-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .card-h h2 { font-size: 13.5px; font-weight: 600; margin: 0; }
 .label { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
@@ -579,7 +600,8 @@ canvas#logCv { display: block; width: 100%; height: max(360px, calc(100dvh - 150
   <div class="tabs" role="tablist">
     <button id="tabVehicle" role="tab" type="button" aria-selected="true">1 · 차량 모델</button>
     <button id="tabSim" role="tab" type="button" aria-selected="false">2 · 시뮬레이션</button>
-    <button id="tabLog" role="tab" type="button" aria-selected="false">3 · 로그 시청</button>
+    <button id="tabRace" role="tab" type="button" aria-selected="false">3 · 레이스</button>
+    <button id="tabLog" role="tab" type="button" aria-selected="false">4 · 로그 시청</button>
   </div>
   <span class="frame-note">차량 프레임: 원점 후륜축 중심 · x 전방 · y 좌측 · cm · yaw 반시계 +</span>
 </header>
@@ -656,13 +678,13 @@ canvas#logCv { display: block; width: 100%; height: max(360px, calc(100dvh - 150
     <div class="toolbar">
       <label class="tb-field" for="mapSel">맵 <select id="mapSel"></select></label>
       <span class="tb-sep"></span>
-      <button id="allRun" type="button">▶ 모두 실행</button>
-      <button id="allPause" type="button">⏸ 모두 일시정지</button>
-      <button id="allStop" type="button">⏹ 모두 정지</button>
+      <button id="allRun" type="button" class="free-only">▶ 모두 실행</button>
+      <button id="allPause" type="button" class="free-only">⏸ 모두 일시정지</button>
+      <button id="allStop" type="button" class="free-only">⏹ 모두 정지</button>
       <label class="tb-field" for="speedSel">속도 <select id="speedSel"><option value="0.25">×0.25</option><option value="0.5">×0.5</option><option value="1" selected>×1</option><option value="2">×2</option><option value="4">×4</option></select></label>
       <span class="status" id="rtfOut"></span>
       <span class="tb-sep"></span>
-      <label class="tb-field rec-tog" for="recTog" title="켜 둔 채로 ▶ 모두 실행을 누르면 맵과 각 차의 위치·방향을 기록해 올립니다. ⏹ 모두 정지(또는 토글 끄기)로 끝냄. 탭 3에서 재생"><input id="recTog" type="checkbox"><i class="rec-dot"></i>로그 녹화</label>
+      <label class="tb-field rec-tog free-only" for="recTog" title="켜 둔 채로 ▶ 모두 실행을 누르면 맵과 각 차의 위치·방향을 기록해 올립니다. ⏹ 모두 정지(또는 토글 끄기)로 끝냄. 탭 3에서 재생"><input id="recTog" type="checkbox"><i class="rec-dot"></i>로그 녹화</label>
       <span class="status" id="recOut" hidden></span>
       <span class="grow"></span>
       <label class="tb-field" for="simNames"><input id="simNames" type="checkbox" checked>차 이름</label>
@@ -671,12 +693,32 @@ canvas#logCv { display: block; width: 100%; height: max(360px, calc(100dvh - 150
     <div class="canvas-box">
       <canvas id="simCv" aria-label="시뮬레이션 보드: 맵과 차량"></canvas>
       <div class="tip" id="simTip" hidden></div>
+      <div class="race-tower" id="raceTower" hidden></div>
+      <div class="race-lights" id="raceLights" hidden aria-label="출발 신호"></div>
+      <div class="race-toast" id="raceToast" role="status" hidden></div>
       <p class="board-msg" id="simMsg" hidden></p>
     </div>
     <div class="hintbar"><span>차량 클릭 = 선택 · 정지 상태에서 드래그 = 출발 위치 · ↻ 핸들 = 출발 방향(5°) · Ctrl+Z / Ctrl+Y = 되돌리기 / 다시</span><span>빈 곳 드래그 · 휠 클릭 드래그 = 시점 이동 · 휠 = 확대</span></div>
   </section>
 
   <aside class="panel sim-panel">
+    <div class="card" id="raceCard">
+      <div class="card-h"><h2>레이스</h2></div>
+      <p class="sub" id="raceIntro">몬차·영암에서 F1 결승 규칙으로 랩 기록 측정. 차 6대(코드 차 2대 + 더미). 차 구성과 맵은 탭 2와 따로 저장</p>
+      <div id="raceBody" hidden>
+        <div class="fld three">
+          <label for="raceLaps">랩 수<input id="raceLaps" type="number" min="1" max="50" value="3"></label>
+          <label for="raceAuto">이탈 복귀<select id="raceAuto"><option value="1">자동</option><option value="0">수동</option></select></label>
+          <label for="raceSeed">시드<input id="raceSeed" type="number" value="1"></label>
+        </div>
+        <p class="sub" style="margin:8px 0 0">그리드 (1번 = 폴, 1·2차로 번갈아)</p>
+        <ol class="race-grid" id="raceGrid"></ol>
+        <div class="row" style="gap:6px"><button type="button" id="raceGo" class="primary">경기 시작</button><button type="button" id="raceEnd">경기 끝내기</button></div>
+        <p class="sub" style="margin:6px 0 0">이탈(앞 IR 센서열 중심이 차로 영역 밖 10 cm, 1 s)·멈춤(5 s) → 가장 가까운 흰 선으로 복귀·Mega 리셋 +10 s. 충돌: 같은 차로 뒤차, 차로 변경 중이면 둘 다 +5 s. 경기는 자동으로 로그 녹화</p>
+        <p class="msg" id="raceMsg"></p>
+        <div id="raceResult"></div>
+      </div>
+    </div>
     <div class="card">
       <div class="card-h"><h2>차량 불러오기</h2><span class="sub" id="carCount"></span></div>
       <div class="parts">
@@ -761,6 +803,7 @@ canvas#logCv { display: block; width: 100%; height: max(360px, calc(100dvh - 150
   <div class="canvas-box">
     <canvas id="logCv" aria-label="로그 재생: 맵과 차량"></canvas>
     <div class="log-legend" id="logLegend"></div>
+    <div class="race-tower" id="logTower" hidden style="left:auto;right:10px"></div>
     <p class="board-msg" id="logMsg">불러오는 중…</p>
   </div>
   <div class="hintbar"><span id="logInfo"></span><span>빈 곳 드래그 = 시점 이동 · 휠 = 확대 · 범례에서 차 이름 클릭 = 따라가기 · Space = 재생/정지 · ← → = 2초 이동</span></div>
@@ -769,6 +812,7 @@ canvas#logCv { display: block; width: 100%; height: max(360px, calc(100dvh - 150
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
 <script src="supabase.js"></script>
 <script src="garage-config.js"></script>
+<script src="race.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/clike/clike.min.js"></script>
 <script>
 (() => {
@@ -1753,23 +1797,24 @@ const countsPerCm = P => P.tpm > 0 ? P.tpm / 100 : P.ppr * 4 * P.gear / (Math.PI
 
 // ================= 탭 전환 =================
 function showTab(t) {
-  if (t === "log" && editingCar) { endLayoutEdit(true); showTab("log"); return; }
-  const v = t === "vehicle";
-  $("pageVehicle").hidden = !v; $("pageSim").hidden = t !== "sim"; $("pageLog").hidden = t !== "log";
-  $("tabVehicle").setAttribute("aria-selected", v); $("tabSim").setAttribute("aria-selected", t === "sim"); $("tabLog").setAttribute("aria-selected", t === "log");
+  if ((t === "log" || t === "race") && editingCar) { endLayoutEdit(true); showTab(t); return; }
+  const v = t === "vehicle", simLike = t === "sim" || t === "race";
+  if (t === "race") raceEnter(); else if (t === "sim" && RACE.on) raceLeave();   // 레이스 탭 = 같은 보드, 차 구성·맵은 탭 2와 따로
+  $("pageVehicle").hidden = !v; $("pageSim").hidden = !simLike; $("pageLog").hidden = t !== "log";
+  $("tabVehicle").setAttribute("aria-selected", v); $("tabSim").setAttribute("aria-selected", t === "sim"); $("tabRace").setAttribute("aria-selected", t === "race"); $("tabLog").setAttribute("aria-selected", t === "log");
   if (v) requestAnimationFrame(() => { resize(); draw(); });
-  else if (t === "sim") { if (editingCar) { endLayoutEdit(true); return; } requestAnimationFrame(() => { simResize(); if (!scv._fitted && MAPS.length) { scv._fitted = true; fitSim(); } drawSim(); if (cm) cm.refresh(); }); }
+  else if (simLike) { if (editingCar) { endLayoutEdit(true); return; } requestAnimationFrame(() => { simResize(); if (!scv._fitted && MAPS.length) { scv._fitted = true; fitSim(); } drawSim(); if (cm) cm.refresh(); }); }
   else requestAnimationFrame(() => { logShown(); });
   try { localStorage.setItem("irsim.tab", t); } catch (e) {}
 }
-$("tabVehicle").onclick = () => showTab("vehicle"); $("tabSim").onclick = () => showTab("sim"); $("tabLog").onclick = () => showTab("log");
+$("tabVehicle").onclick = () => showTab("vehicle"); $("tabSim").onclick = () => showTab("sim"); $("tabRace").onclick = () => showTab("race"); $("tabLog").onclick = () => showTab("log");
 
 // ======================================================================
 // 탭 2: 시뮬레이션 — 차량마다 별도 워커(car-worker.js: Mega 에뮬레이션 + 차량 모델 + 센서)
 // 메인은 맵·차량 위치 공유·충돌·그리기·UI 담당. 단위 cm, yaw rad (월드: x 오른쪽, y 위)
 // ======================================================================
 const SIM_STORE = "irsim.sim.v1", MAX_CARS = 4;
-const CAR_COLORS = ["car1", "car2", "car3", "car4"];
+const CAR_COLORS = ["car1", "car2", "car3", "car4", "car5", "car6"];
 const SAMPLE_CODE = `// 샘플: 앞 IR 11ch + 뒤 IR 5ch 가중평균 + 비례(P) 조향 라인트레이서
 // 탭 1 기본 배선 기준: 조향 서보 D9, 모터 PWM D6 / DIR D7 (HIGH = 후진)
 //   앞 11ch 아날로그 A0~A10 (센서 0~10), 뒤 5ch 아날로그 A11~A15 (센서 1~5)
@@ -1978,14 +2023,20 @@ function carConfig(car) {
 }
 
 // ---- 저장 ----
-function simSave() {
-  try { localStorage.setItem(SIM_STORE, JSON.stringify({ mapId: SIM.mapId, speed: SIM.speed,
-    cars: SIM.cars.map(c => ({ name: c.name, color: c.color, design: c.design, code: c.code, start: c.start, ...(c.locked ? { locked: true, hex: c.hex } : {}), ...(c.kind === "dummy" ? { kind: "dummy", dSpeed: c.dSpeed } : {}) })) })); } catch (e) {}
+function simSave() {                                           // 탭 2 차 구성과 레이스 탭 차 구성을 따로 저장
+  const ser = cs => (cs || []).map(c => ({ name: c.name, color: c.color, design: c.design, code: c.code, start: c.start, ...(c.locked ? { locked: true, hex: c.hex } : {}), ...(c.kind === "dummy" ? { kind: "dummy", dSpeed: c.dSpeed } : {}) }));
+  const free = RACE.on ? RACE.stash : { cars: SIM.cars, map: SIM.mapId }, race = RACE.on ? { cars: SIM.cars, map: SIM.mapId } : { cars: RACE.cars, map: RACE.map };
+  try { localStorage.setItem(SIM_STORE, JSON.stringify({ mapId: free.map, speed: SIM.speed, cars: ser(free.cars), raceMap: race.map, raceCars: ser(race.cars) })); } catch (e) {}
 }
 function simLoad() {
   try { const j = JSON.parse(localStorage.getItem(SIM_STORE) || "null"); if (!j) return false;
     SIM.mapId = j.mapId || SIM.mapId; SIM.speed = j.speed || 1;
-    for (const c of j.cars || []) addCar(c.design, { name: c.name, color: c.color, code: c.code, start: c.start, locked: c.locked, hex: c.hex, kind: c.kind, dSpeed: c.dSpeed, quiet: true });
+    const load = cs => { for (const c of cs || []) addCar(c.design, { name: c.name, color: c.color, code: c.code, start: c.start, locked: c.locked, hex: c.hex, kind: c.kind, dSpeed: c.dSpeed, quiet: true }); };
+    if (j.raceCars?.length) {                                    // 레이스 탭 차 구성 (기록모드 규칙으로 불러옴)
+      const free = SIM.mapId; SIM.mapId = RACE_MAPS.includes(j.raceMap) ? j.raceMap : RACE_MAPS[0]; RACE.on = true;
+      load(j.raceCars); RACE.cars = SIM.cars; RACE.map = SIM.mapId; SIM.cars = []; RACE.on = false; SIM.mapId = free;
+    }
+    load(j.cars);
     return true; } catch (e) { return false; }
 }
 
@@ -2005,6 +2056,7 @@ function setMap(id) {
   SIM.cars.forEach(stopCar);
   SIM.mapId = id; const m = curMap(); HITS.marks = [];
   SIM.cars.forEach((c, i) => { c.start = startSlot(i); c.pose = { ...c.start }; c.trail = []; });
+  placeGrid();
   for (const c of SIM.cars) if (c.worker) c.worker.postMessage({ type: "map", map: m });
   simSave(); fitSim(); renderSimUI();
 }
@@ -2012,7 +2064,9 @@ function setMap(id) {
 // ---- 차량 추가/삭제 ----
 const LOCKED_CODE = "// 🔒 이 차는 올린 사람이 코드를 비공개로 올렸습니다.\n// 컴파일된 펌웨어(.hex)로 주행만 할 수 있습니다.\n// '샘플 코드 ▾'나 '다른 차 코드 가져오기'로 코드를 바꾸면 내 코드로 주행합니다.\n";
 function addCar(design, o = {}) {
-  if (SIM.cars.length >= MAX_CARS) { $("addMsg").textContent = `차는 최대 ${MAX_CARS}대까지 올릴 수 있습니다.`; return null; }
+  if (SIM.cars.length >= maxCars()) { $("addMsg").textContent = `차는 최대 ${maxCars()}대까지 올릴 수 있습니다.`; return null; }
+  if (RACE.on && o.kind !== "dummy" && SIM.cars.filter(isCode).length >= 2) { $("addMsg").textContent = "기록모드에서 코드 차는 2대까지입니다 (나머지는 더미)."; return null; }
+  if (RACE.on && RACE.phase !== "idle") { $("addMsg").textContent = "경기 중에는 차를 올릴 수 없습니다."; return null; }
   try { fromJSON(design); } catch (e) { $("addMsg").textContent = "차량 설정을 읽지 못했습니다: " + e.message; return null; }
   const used = new Set(SIM.cars.map(c => c.color));
   const id = simSeq++, car = { id, name: o.name || `${id}번 차`, color: o.color || CAR_COLORS.find(k => !used.has(k)) || "car1", design, code: o.code ?? sampleFor(design),
@@ -2026,6 +2080,7 @@ function addCar(design, o = {}) {
   return car;
 }
 function removeCar(car) {
+  if (RACE.on && RACE.phase !== "idle") return;
   stopCar(car); car.worker?.terminate();
   SIM.cars = SIM.cars.filter(c => c !== car);
   if (SIM.sel === car.id) SIM.sel = SIM.cars[0]?.id ?? null;
@@ -2057,7 +2112,7 @@ async function runCar(car) {
   if (car.hexSrc !== car.code) {
     car.status = "compiling"; renderSimUI();
     const r = await compileCode(car.code);
-    if (!SIM.cars.includes(car)) return;
+    if (!SIM.cars.includes(car) || car.status !== "compiling") return;   // 컴파일 중에 정지됨 (레이스 준비 중 경기 끝내기 등)
     if (!r.ok) { car.status = "error"; car.err = [r.error, ...(r.log || [])].join("\n"); SIM.sel = car.id; setDock("code"); renderSimUI(); showCodeResult(car); return; }
     car.hex = r.hex; car.hexSrc = car.code; car.err = ""; car.flash = r.flash;
   }
@@ -2070,20 +2125,25 @@ async function runCar(car) {
     car.worker.postMessage({ type: "map", map: curMap() });
   }
   car.cfg = carConfig(car); car.trail = []; car.serial = []; car.serialTail = ""; car.serialUnread = 0;
-  car.worker.postMessage({ type: "init", hex: car.hex, cfg: { ...car.cfg, start: car.start } });
+  car.worker.postMessage({ type: "init", hex: car.hex, cfg: { ...car.cfg, start: car.start, ...(car.race && RACE.phase !== "idle" ? { seed: car.race.seed } : {}) } });
 }
 const TRAIL_MAX = 3000;
 function onCarMsg(car, d) {
   if (d.type === "ready") { if (car.status === "starting") car.status = "running"; car.busy = false; renderSimUI(); return; }
   if (d.type === "error") { car.status = "error"; car.err = "에뮬레이션 중단: " + d.message; car.busy = false; renderSimUI(); return; }
   if (d.type !== "state") return;
+  if (car.awaitReset) { car.awaitReset = false; return; }        // 기록모드 복귀: 리셋 응답은 건너뛰고 같은 프레임 스텝 응답을 기다림
   car.busy = false;
   if (car.status === "stopped") return;
+  if (RACE.phase === "run") { car.pendingState = d; return; }   // 기록모드: 모든 차 응답 뒤 그리드 순서로 반영 (도착 순서와 무관하게 같은 결과)
+  applyCarState(car, d);
+}
+function applyCarState(car, d) {
   const prev = car.pose;
   car.pose = { x: d.x, y: d.y, yaw: d.yaw, v: d.v, delta: d.delta, servo: d.servo, pwm: d.pwm, esc: d.esc, t: d.t, slip: d.slip, usAng: d.usAng, usD: d.usD };
   // 충돌: 다른 차 외곽과 겹치면 이번 이동을 되돌리고 멈춤
   car.hit = false;
-  for (const o of SIM.cars) if (o !== car && o.status !== "hidden" && polysOverlap(footWorld(car, car.pose), footWorld(o, o.pose))) { car.hit = true; noteHit(car, o); break; }
+  for (const o of SIM.cars) if (o !== car && o.status !== "hidden" && polysOverlap(footWorld(car, car.pose), footWorld(o, o.pose))) { car.hit = true; noteHit(car, o); noteHitRace(car, o); break; }
   if (car.hit && prev) { car.pose = { ...car.pose, x: prev.x, y: prev.y, yaw: prev.yaw, v: 0 }; car.forcePose = { x: prev.x, y: prev.y, yaw: prev.yaw }; }
   else { car.trail.push(...d.trail); if (car.trail.length > TRAIL_MAX) car.trail.splice(0, car.trail.length - TRAIL_MAX); }   // 궤적은 최근 30 m만 (그리기 부담)
   if (d.serial) {
@@ -2131,14 +2191,14 @@ function dummyStep(car, ms) {
     let he = Math.atan2(ty, tx) - yaw; he = Math.atan2(Math.sin(he), Math.cos(he));
     delta = Math.max(-DUMMY_MAXSTEER, Math.min(DUMMY_MAXSTEER, he + Math.atan2(-DUMMY_K * e, Math.abs(v) + 5)));
     const ended = !D.closed && (D.i === 0 || D.i === n - 1);
-    const tv = ended ? 0 : car.dSpeed;
+    const tv = ended ? 0 : Math.min(car.dSpeed, RACE.phase === "run" ? car.capV ?? Infinity : Infinity);   // 기록모드: 같은 차로 앞차 따라가기
     v = tv > v ? Math.min(tv, v + DUMMY_ACC * dt) : Math.max(tv, v - DUMMY_DEC * dt);
     x += v * c * dt; y += v * s * dt; yaw += v / L * Math.tan(delta) * dt;
   }
   D.v = v; D.t += ms / 1000;
   car.pose = { x, y, yaw, v, delta, servo: 110 - delta / D2R, pwm: 0, t: D.t };
   car.hit = false;                                           // 충돌하면 이번 이동을 되돌리고 멈춤 (Mega 차와 같은 규칙)
-  for (const o of SIM.cars) if (o !== car && polysOverlap(footWorld(car, car.pose), footWorld(o, o.pose))) { car.hit = true; noteHit(car, o); break; }
+  for (const o of SIM.cars) if (o !== car && polysOverlap(footWorld(car, car.pose), footWorld(o, o.pose))) { car.hit = true; noteHit(car, o); noteHitRace(car, o); break; }
   if (car.hit) { car.pose = { ...car.pose, x: prev.x, y: prev.y, yaw: prev.yaw, v: 0 }; D.v = 0; }
   else { const lp = car.trail.at(-1); if (!lp || Math.hypot(x - lp[0], y - lp[1]) > 1) { car.trail.push([x, y]); if (car.trail.length > TRAIL_MAX) car.trail.splice(0, car.trail.length - TRAIL_MAX); } }
 }
@@ -2156,10 +2216,12 @@ function noteHit(car, o) {                                   // 부딪친 두 �
   recHit(car, o, m);
   renderCarList();
 }
+function noteHitRace(car, o) { if (RACE.phase === "run") raceHit(car, o); }
 function pauseCar(car) { if (car.status === "running") { car.status = "paused"; renderSimUI(); } }
 function stopCar(car) {
   if (car.status === "stopped") return;
   car.status = "stopped"; car.busy = false; car.hit = false; car.forcePose = null; car.dum = null; car.hitCount = 0; car.lastHit = 0;
+  car.pendingState = null; car.awaitReset = false; car.capV = undefined;
   car.pose = { ...car.start, v: 0, delta: 0, servo: 110, pwm: 0, t: 0 }; car.trail = [];
   if (car.worker) { car.worker.terminate(); car.worker = null; }       // 다음 실행 때 새로 시작 (MCU 리셋)
   renderSimUI();
@@ -2188,12 +2250,16 @@ function simFrame(now) {
   const dt = Math.min(50, now - simLast); simLast = now;
   if (!$("pageSim").hidden) {
     const run = SIM.cars.filter(c => c.status === "running" && (c.worker || c.kind === "dummy"));
-    const waiting = run.some(c => c.worker && c.busy && now - (c.busySince || 0) < 2000);   // 2 s 넘게 응답 없는 워커는 기다리지 않음
+    const racing = RACE.phase === "run";
+    const waiting = run.some(c => c.worker && c.busy && (racing || now - (c.busySince || 0) < 2000));   // 2 s 넘게 응답 없는 워커는 기다리지 않음 (기록모드 경기 중에는 끝까지 기다림)
     simAcc = Math.min(simAcc + dt * SIM.speed, 100);
-    if (run.length && !waiting) {
-      const n = Math.floor(simAcc);
+    if (RACE.phase === "lights") { raceLights(dt * SIM.speed); simAcc = 0; }
+    if (run.length && !waiting && (RACE.phase === "idle" || racing)) {
+      const n = racing ? (simAcc >= RACE_DT ? RACE_DT : 0) : Math.floor(simAcc);   // 기록모드: 고정 30 ms 스텝 (판정 시점이 배속·프레임과 무관)
       if (n > 0) {
         simAcc -= n; rtfWin.sim += n;
+        if (racing) { for (const c of run) if (c.pendingState) { const d = c.pendingState; c.pendingState = null; applyCarState(c, d); }
+          raceTick(); if (RACE.phase !== "run") return requestAnimationFrame(simFrame); }   // 판정 (모든 차 같은 시각), 경기가 끝났으면 이번 스텝 안 함
         recStep(n);                                            // 로그 녹화: 이번 스텝 전 위치(= 모든 차 같은 시각) 기록
         for (const car of run) {
           if (car.kind === "dummy") { dummyStep(car, n); continue; }   // 더미는 메인에서 바로 계산
@@ -2203,8 +2269,10 @@ function simFrame(now) {
           car.worker.postMessage({ type: "step", n, others, pose: car.forcePose || null, probe: car.id === SIM.sel });
           car.forcePose = null;
         }
+        if (racing) RACE.t += n;
       }
     }
+    if (RACE.on) { renderTower(); if (RACE.toast && performance.now() - RACE.toast.at > 2500) { $("raceToast").hidden = true; RACE.toast = null; } }
     if (run.length) rtfWin.wall += dt;
     if (rtfWin.wall >= 1000) {                                 // 실시간 대비 속도 표시 (1초마다)
       const r = rtfWin.sim / rtfWin.wall, el = $("rtfOut");
@@ -2391,7 +2459,7 @@ scv.addEventListener("wheel", e => { e.preventDefault(); const [px, py] = sPt(e)
 const STATUS = { stopped: ["정지", ""], compiling: ["컴파일 중", "warn"], starting: ["시작 중", "warn"], running: ["실행 중", "live"], paused: ["일시정지", "warn"], error: ["오류", "err"] };
 const esc = s => String(s).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
 function selectCar(car) { if (!car || SIM.sel === car.id) return; SIM.sel = car.id; renderSimUI(); }
-function renderSimUI() { renderCarList(); renderSel(); renderDock(); $("carCount").textContent = `${SIM.cars.length} / ${MAX_CARS}대`;
+function renderSimUI() { renderCarList(); renderSel(); renderDock(); $("carCount").textContent = `${SIM.cars.length} / ${maxCars()}대`; renderRace();
   $("simMsg").hidden = SIM.cars.length > 0; $("simMsg").textContent = "오른쪽 '차량 불러오기'에서 차를 올리세요."; }
 // 코드 상태 한 줄: 컴파일 여부·수정 여부
 function codeState(car) {
@@ -2405,7 +2473,7 @@ function codeState(car) {
 const delArmed = c => c._delArm && Date.now() - c._delArm < 3000;
 function renderCarList() {
   const el = $("dpCars");
-  $("dockCount").textContent = `${SIM.cars.length} / ${MAX_CARS}대 · 차를 고르면 오른쪽에 그 차의 코드와 Serial이 열립니다`;
+  $("dockCount").textContent = `${SIM.cars.length} / ${maxCars()}대 · 차를 고르면 오른쪽에 그 차의 코드와 Serial이 열립니다`;
   if (!SIM.cars.length) { el.innerHTML = `<p class="sub">맵에 올라온 차량이 없습니다.</p>`; return; }
   el.innerHTML = SIM.cars.map(c => { const [st, cls] = STATUS[c.status], [cs, ccls] = codeState(c), busy = c.status === "compiling" || c.status === "starting";
     return `<div class="carrow${c.id === SIM.sel ? " sel" : ""}" data-car="${c.id}" role="option" aria-selected="${c.id === SIM.sel}" style="--cc:var(--${c.color})">
@@ -2420,10 +2488,12 @@ function renderCarList() {
   el.querySelectorAll(".carrow").forEach(row => row.onclick = ev => {
     const car = SIM.cars.find(c => c.id === +row.dataset.car), act = ev.target.closest("button")?.dataset.act;
     SIM.sel = car.id;
-    if (act === "del") {                                     // 두 번 눌러 삭제 (3초 안에)
+    if (act === "del" && RACE.on && RACE.phase !== "idle") {}
+    else if (act === "del") {                                     // 두 번 눌러 삭제 (3초 안에)
       if (delArmed(car)) { removeCar(car); return; }
       car._delArm = Date.now(); setTimeout(() => { if (SIM.cars.includes(car)) renderCarList(); }, 3100);
     }
+    else if (RACE.on && RACE.phase !== "idle" && ["run", "pause", "stop"].includes(act)) {}   // 경기 중에는 차별 조작 막음
     else if (act === "run") runCar(car); else if (act === "pause") pauseCar(car); else if (act === "stop") stopCar(car);
     else if (act === "eye") { SIM.follow = SIM.follow === car.id ? null : car.id; if (SIM.follow) scam.s = Math.max(scam.s, 6 * dpr()); }
     renderSimUI();
@@ -2759,7 +2829,7 @@ function renderGarage() {
   }
 }
 async function takeFromGarage(e) {
-  if (SIM.cars.length >= MAX_CARS) { gInfo(`맵에는 최대 ${MAX_CARS}대까지 올릴 수 있습니다. 한 대를 삭제하세요.`); return; }
+  if (SIM.cars.length >= maxCars()) { gInfo(`맵에는 최대 ${maxCars()}대까지 올릴 수 있습니다. 한 대를 삭제하세요.`); return; }
   let opts = { code: e.code || sampleFor(e.design) };
   if (e.codePrivate) {
     if (e.mine && GARAGE.be.privateCode) {                     // 내 비공개 차는 원본 코드까지 가져옴
@@ -2801,6 +2871,7 @@ $("garageFilter").oninput = renderGarage;
 //   x·y = mm 정수, a = 누적 yaw(감기 풀린 값) mrad 정수, d = 앞바퀴 조향 mrad 정수, 모두 앞 값과의 차분
 // ======================================================================
 const REC_DT = 50, REC_MAX = 10 * 60 * 1000, LOG_MINE_MAX = 20;
+const REC_DT_RACE = 100, REC_MAX_RACE = 30 * 60 * 1000;           // 레이스 경기 로그: 6대 × 30분이 2,000,000자 안에 들어가게
 const REC = { cur: null };
 const ACTIVE = ["running", "paused", "compiling", "starting"];
 const r1 = v => Math.round(v * 10) / 10;
@@ -2813,11 +2884,11 @@ function recShow() {
   if (R) { el.className = "status live"; el.textContent = `● 녹화 중 ${(R.t / 1000).toFixed(1)} s`; }
   else if (on) { el.className = "status"; el.textContent = "▶ 모두 실행 누르면 녹화 시작"; }
 }
-function recStart() {
-  if (!$("recTog").checked || REC.cur || !SIM.cars.length) return;
+function recStart(force) {
+  if ((!force && !$("recTog").checked) || REC.cur || !SIM.cars.length) return;
   const cars = [...SIM.cars];
   REC.cur = { cars, looks: cars.map(carLook), map: SIM.mapId, t: 0, next: 0, wall0: Date.now(), T: [], E: [],
-    P: cars.map(() => ({ x: [], y: [], a: [], d: [], h: "", ua: null, ra: 0 })) };
+    P: cars.map(() => ({ x: [], y: [], a: [], d: [], h: "", ua: null, ra: 0 })), ...(force && RACE.phase === "run" ? { RR: [], race: { laps: RACE.laps, seed: RACE.seed, auto: RACE.auto } } : {}) };
   recShow();
 }
 function recSample(R) {
@@ -2834,9 +2905,9 @@ function recHit(car, o, m) {                                     // 충돌 사�
 }
 function recStep(n) {
   const R = REC.cur; if (!R) return;
-  if (R.t >= R.next) { recSample(R); R.next = R.t + REC_DT; }
+  if (R.t >= R.next) { recSample(R); R.next = R.t + (R.race ? REC_DT_RACE : REC_DT); }
   R.t += n;
-  if (R.t >= REC_MAX) recFinish("최대 10분이라 녹화를 끝냈습니다.");
+  if (R.t >= (R.race ? REC_MAX_RACE : REC_MAX)) recFinish(R.race ? "최대 30분이라 녹화를 끝냈습니다." : "최대 10분이라 녹화를 끝냈습니다.");
 }
 function recCheck() {                                            // 매 프레임: 모든 차가 멈추면(정지·오류) 녹화 끝
   const R = REC.cur;
@@ -2851,8 +2922,9 @@ async function recFinish(why) {
   recShow();
   if (R.T.length < 2) { $("recOut").hidden = false; $("recOut").className = "status"; $("recOut").textContent = "기록된 주행이 없습니다"; return; }
   const m = MAPS.find(x => x.id === R.map);
-  const meta = { v: 1, map: R.map, mapTitle: m ? m.title : R.map, dur: R.T.at(-1), n: R.T.length, hits: R.E.length, cars: R.cars.map(c => ({ name: c.name, color: c.color, ...(c.kind === "dummy" ? { kind: "dummy" } : {}) })) };
-  const data = JSON.stringify({ v: 1, looks: R.looks, T: deltas(R.T), cars: R.P.map(Q => ({ x: deltas(Q.x), y: deltas(Q.y), a: deltas(Q.a), d: deltas(Q.d), ...(Q.h.includes("1") ? { h: Q.h } : {}) })), E: R.E });
+  const meta = { v: 1, map: R.map, mapTitle: m ? m.title : R.map, dur: R.T.at(-1), n: R.T.length, hits: R.E.length, cars: R.cars.map(c => ({ name: c.name, color: c.color, ...(c.kind === "dummy" ? { kind: "dummy" } : {}) })),
+    ...(R.race ? { race: { ...R.race, rows: (R.raceRows || []).map(r => ({ i: R.cars.findIndex(c => c.id === r.id), pos: r.pos, laps: r.laps, total: r.total, penalty: r.penalty, best: r.best })) } } : {}) };
+  const data = JSON.stringify({ v: 1, looks: R.looks, T: deltas(R.T), cars: R.P.map(Q => ({ x: deltas(Q.x), y: deltas(Q.y), a: deltas(Q.a), d: deltas(Q.d), ...(Q.h.includes("1") ? { h: Q.h } : {}) })), E: R.E, ...(R.RR ? { R: R.RR } : {}) });
   const entry = { id: "local" + Date.now(), local: true, uid: LOGS.uid, who: "나", meta, createdAt: Date.now(), data };
   LOGS.local.unshift(entry); renderLogSel();
   const say = t => { $("recOut").hidden = false; $("recOut").className = "status"; $("recOut").textContent = t; };
@@ -2865,6 +2937,203 @@ async function recFinish(why) {
   catch (e) { say(`녹화 끝 (${tail}) · 올리지 못함 (${e.message || e.code}) → 이 창에서만 재생`); }
 }
 $("recTog").onchange = () => { if (!$("recTog").checked) recFinish(); recShow(); };
+
+// ================= 기록모드 (설계: claude/race_record_mode.md, 판정 로직: race.js) =================
+// F1 결승 규칙: 그리드 출발, 신호 5개 소등 = 시각 0 + Mega 동시 부팅, N랩. 이탈(앞 IR 센서열 중심이 허용 영역 밖 10 cm 초과 1 s)·멈춤(5 s) → 복귀 +10 s,
+// 충돌 → 같은 차로 뒤차 / 변경 중이면 둘 다 +5 s. 기록은 시뮬레이션 시각. 차 6대(코드 차 2대)
+const RACE_MAPS = ["R5_monza_like", "R6_yeongam", "R7_monza_3lane", "R8_yeongam_3lane"];
+const RACE = { on: false, laps: 3, auto: true, seed: 1, phase: "idle", t: 0, lt: 0, track: null, trackId: null, leaderT: null, rows: null, pair: {}, toast: null, towerAt: 0 };
+const RACE_DT = 30, RACE_REC_PEN = 10000, RACE_HIT_PEN = 5000, RACE_HIT_GAP = 2000, RACE_WAIT = 60000, RACE_OUT_MS = 5700;
+const maxCars = () => RACE.on ? 6 : 4;
+const isCode = c => c.kind !== "dummy";
+const fmtT = ms => ms == null || !isFinite(ms) ? "—" : `${Math.floor(ms / 60000)}:${((ms % 60000) / 1000).toFixed(3).padStart(6, "0")}`;
+function raceTrack() { if (RACE.trackId !== SIM.mapId) { RACE.track = Race.buildTrack(curMap()); RACE.trackId = SIM.mapId; } return RACE.track; }
+function irOffset(car) {                                          // 앞 IR 센서열 중심 (차체 좌표)
+  const B = car.cfg.body, f = car.cfg.irAll.filter(q => q.x > B.L / 2);
+  return f.length ? [f.reduce((a, q) => a + q.x, 0) / f.length, f.reduce((a, q) => a + q.y, 0) / f.length] : [B.L + B.front, 0];
+}
+function irWorld(car) { const [ox, oy] = car.race.irOff, p = car.pose, c = Math.cos(p.yaw), s = Math.sin(p.yaw); return [p.x + ox * c - oy * s, p.y + ox * s + oy * c]; }
+function setToggle(car, lane) {                                   // 출발 차로 토글: OFF = 1차로, ON = 2차로(이상)
+  const d = dipComp(car); if (!d) return;
+  const v = lane >= 2 ? 1 : 0; if ((d.sw || [])[0] === v && d.sw.length === SWN[d.type]) return;
+  d.sw = Array.from({ length: SWN[d.type] }, (_, i) => i === 0 ? v : (d.sw || [])[i] ? 1 : 0); car.cfg = carConfig(car);
+}
+function placeGrid() {                                            // F1식: 1·2차로 번갈아, 출발선 뒤 40 cm부터 60 cm 간격 (목록 순서 = 그리드 순서)
+  if (!RACE.on || RACE.phase !== "idle" || !MAPS.length || !RACE_MAPS.includes(SIM.mapId)) return;
+  const tr = raceTrack();
+  SIM.cars.forEach((c, i) => { if (c.status !== "stopped" && c.status !== "error") return;
+    const lane = i % 2 + 1, q = tr.pointAt(tr.L - 40 - i * 60, lane);
+    c.start = { x: q.x, y: q.y, yaw: q.yaw }; c.pose = { ...c.start, v: 0, delta: 0, servo: 110, pwm: 0, t: 0 }; setToggle(c, lane); });
+}
+function raceMsg(t) { $("raceMsg").textContent = t; }
+function raceEnter() {                                         // 레이스 탭에 들어옴: 탭 2 차들은 멈추고 보관, 레이스 차 구성·맵 꺼냄
+  if (RACE.on) return;
+  recFinish(); SIM.cars.forEach(stopCar);
+  RACE.stash = { cars: SIM.cars, map: SIM.mapId };
+  SIM.cars = RACE.cars || []; SIM.mapId = RACE_MAPS.includes(RACE.map) ? RACE.map : RACE_MAPS[0]; RACE.on = true;
+  raceSwap();
+}
+function raceLeave() {                                         // 탭 2로 돌아감: 경기 끝내고 레이스 차 구성 보관
+  if (!RACE.on) return;
+  raceStop(); SIM.cars.forEach(stopCar);
+  RACE.cars = SIM.cars; RACE.map = SIM.mapId;
+  SIM.cars = RACE.stash.cars; SIM.mapId = RACE.stash.map; RACE.on = false;
+  raceSwap();
+}
+function raceSwap() {
+  SIM.sel = SIM.cars[0]?.id ?? null; SIM.follow = null; HITS.marks = [];
+  $("pageSim").classList.toggle("race-on", RACE.on);
+  $("mapSel").innerHTML = MAPS.filter(m => !RACE.on || RACE_MAPS.includes(m.id)).map(m => `<option value="${m.id}">${esc(m.title)}</option>`).join("");
+  $("mapSel").value = SIM.mapId; raceMsg("");
+  $("addMsg").textContent = RACE.on ? "레이스: 최대 6대(코드 차 2대 + 더미). 새 차는 그리드 맨 뒤에 놓입니다." : "차는 최대 4대. 새 차는 맵 출발선 뒤에 순서대로 놓이고, 샘플 라인트레이서 코드가 들어갑니다.";
+  for (const c of SIM.cars) { c.cfg = carConfig(c); c.pose = { ...c.start, v: 0, delta: 0, servo: 110, pwm: 0, t: 0 }; }
+  placeGrid(); simSave(); renderSimUI(); if (MAPS.length) fitSim();
+}
+function renderRace() {
+  const on = RACE.on, idle = RACE.phase === "idle";
+  $("raceBody").hidden = !on;
+  if (!on) { $("pageSim").classList.remove("race-live"); $("mapSel").disabled = false; }
+  if (!on) return;
+  if (idle) placeGrid();
+  $("pageSim").classList.toggle("race-live", !idle); $("mapSel").disabled = !idle;
+  $("raceGo").disabled = !idle; $("raceEnd").disabled = idle;
+  ["raceLaps", "raceAuto", "raceSeed"].forEach(id => $(id).disabled = !idle);
+  $("raceGrid").innerHTML = SIM.cars.map((c, i) => `<li><i style="background:var(--${c.color})"></i><span>${i + 1}. ${esc(c.name)}${isCode(c) ? "" : " (더미)"}</span>
+    <span class="row" style="gap:4px"><button type="button" data-gup="${c.id}" ${!idle || !i ? "disabled" : ""} aria-label="${esc(c.name)} 앞으로">▲</button><button type="button" data-gdn="${c.id}" ${!idle || i === SIM.cars.length - 1 ? "disabled" : ""} aria-label="${esc(c.name)} 뒤로">▼</button></span></li>`).join("") || `<li class="sub">차를 올리세요 (코드 차 2대 + 더미 4대까지)</li>`;
+  $("raceGrid").querySelectorAll("[data-gup],[data-gdn]").forEach(b => b.onclick = () => {
+    const id = +(b.dataset.gup || b.dataset.gdn), i = SIM.cars.findIndex(c => c.id === id), j = i + (b.dataset.gup ? -1 : 1);
+    [SIM.cars[i], SIM.cars[j]] = [SIM.cars[j], SIM.cars[i]]; placeGrid(); simSave(); renderSimUI(); });
+  $("raceResult").innerHTML = RACE.rows ? raceResultHtml(RACE.rows) : "";
+}
+function raceResultHtml(rows) {
+  return `<table class="race-tbl"><caption>결과 · ${esc(curMap().title)} · ${RACE.laps}랩 · 시드 ${RACE.seed}</caption><thead><tr><th>순위</th><th>차</th><th>랩</th><th>주행</th><th>페널티</th><th>합계</th><th>최고 랩</th><th>내역</th></tr></thead><tbody>${rows.map(r =>
+    `<tr><td>${r.pos}</td><td>${esc(r.name)}</td><td>${r.laps}${r.lapsDown ? ` (${r.lapsDown}랩 뒤짐)` : ""}</td><td>${fmtT(r.finishT)}</td><td>${r.penalty ? "+" + r.penalty / 1000 + " s" : "—"}</td><td><b>${fmtT(r.total)}</b></td><td>${fmtT(r.best)}</td><td>${esc(r.note)}</td></tr>`).join("")}</tbody></table>`;
+}
+async function raceGo() {
+  if (RACE.phase !== "idle") return;
+  const codes = SIM.cars.filter(isCode);
+  if (!codes.length) { raceMsg("코드로 주행하는 차가 1대 이상 있어야 합니다."); return; }
+  RACE.laps = Math.max(1, Math.min(50, Math.round(+$("raceLaps").value) || 3)); RACE.auto = $("raceAuto").value === "1";
+  RACE.seed = Math.round(+$("raceSeed").value) || 0; RACE.rows = null;
+  SIM.cars.forEach(stopCar); placeGrid(); HITS.marks = [];
+  const tr = raceTrack();
+  SIM.cars.forEach((c, i) => { c.race = { penalty: 0, events: [], lap: Race.makeLapCounter(tr.L), off: Race.makeOffTrack(tr), hist: Race.makeLaneHistory(),
+    hint: -1, s: 0, d: 0, lane: 1, prog: null, marks: [], finishT: null, offFlag: null, recov: 0, seed: RACE.seed * 16 + i, irOff: irOffset(c) }; });
+  RACE.phase = "prep"; RACE.t = 0; RACE.leaderT = null; RACE.pair = {}; raceMsg("컴파일·준비 중…"); renderSimUI();
+  for (const c of SIM.cars) { if (RACE.phase !== "prep") return; await runCar(c); }                      // 코드 차: 컴파일 + Mega 부팅(스텝은 소등 후부터), 더미: 출발 준비
+  const t0 = Date.now();
+  while (RACE.phase === "prep" && codes.some(c => c.status === "starting" || c.status === "compiling") && Date.now() - t0 < 30000) await new Promise(r => setTimeout(r, 100));
+  if (RACE.phase !== "prep") return;
+  const bad = codes.find(c => c.status !== "running");
+  if (bad) { raceStop(); raceMsg(`${bad.name} 준비 실패 (${bad.status === "error" ? "컴파일·실행 오류" : "시간 초과"}). 코드를 확인하세요.`); return; }
+  RACE.phase = "lights"; RACE.lt = 0; raceMsg(""); renderSimUI();
+}
+function raceLights(ms) {
+  RACE.lt += ms;
+  const n = Math.min(5, Math.floor(RACE.lt / 1000) + 1), el = $("raceLights");
+  el.hidden = false; el.innerHTML = Array.from({ length: 5 }, (_, i) => `<i class="${i < n ? "on" : ""}"></i>`).join("");
+  if (RACE.lt >= RACE_OUT_MS) {                                     // 소등 = 출발
+    el.innerHTML = Array.from({ length: 5 }, () => "<i></i>").join(""); setTimeout(() => { if (RACE.phase !== "lights") el.hidden = true; }, 600);
+    RACE.phase = "run"; RACE.t = 0; recStart(true); raceToast("출발!");
+  }
+}
+function raceToast(t) { RACE.toast = { t, at: performance.now() }; const el = $("raceToast"); el.textContent = t; el.hidden = false; }
+function raceEvent(car, e) {
+  car.race.events.push(e);
+  const R = REC.cur; if (R && R.RR) { const i = R.cars.indexOf(car); if (i >= 0) R.RR.push([Math.round(R.t), i, e.type, e.value ?? null]); }
+}
+function raceTick() {
+  const t = RACE.t, tr = raceTrack(), L = tr.L, live = SIM.cars.filter(c => c.race && c.status !== "stopped" && c.status !== "error");
+  for (const car of live) {
+    const R = car.race, [ix, iy] = irWorld(car), p = tr.project(ix, iy, R.hint);
+    R.hint = p.i; R.s = p.s; R.d = p.d; R.lane = Math.max(1, Math.min(3, Math.round(p.d / Race.LANE_W) + 1));
+    if (R.prog == null) R.prog = p.s - L; else { let ds = p.s - R.ps; if (ds > L / 2) ds -= L; if (ds < -L / 2) ds += L; R.prog += ds; }   // 출발선 기준 누적 진행 거리 (그리드는 음수)
+    R.ps = p.s; const mk = Math.floor(R.prog / 50); if (mk >= 0 && R.marks[mk] == null) R.marks[mk] = t;
+    R.hist.push(t, p.d - Race.LANE_W * Math.round(p.d / Race.LANE_W), wrapPi(car.pose.yaw - p.yaw));
+    if (R.finishT == null) for (const e of R.lap.update(t, p.s)) {
+      if (e.type === "lap") raceEvent(car, { t, type: "lap", value: e.time });
+      if (e.type === "lap" && isCode(car) && (e.lap >= RACE.laps || RACE.leaderT != null)) {
+        R.finishT = t; if (RACE.leaderT == null) { RACE.leaderT = t; raceToast(`🏁 ${car.name} 완주 · 체커기`); } }
+    }
+    if (isCode(car) && R.finishT == null && car.status === "running") {
+      const st = R.off.update(t, ix, iy, car.pose.v || 0);
+      if (st === "off" || st === "stall") { if (RACE.auto) raceRecover(car, st); else if (!R.offFlag) { R.offFlag = st; raceToast(`${car.name} ${st === "off" ? "이탈" : "멈춤"} — 순위표에서 복귀`); } }
+      else if (st === "ok" && R.offFlag) R.offFlag = null;                 // 수동모드: 스스로 돌아오면 복귀 버튼 내림
+    }
+  }
+  for (const car of live) if (!isCode(car)) {                     // 더미: 같은 차로 앞차 간격으로 속도 제한 (22 cm에서 0)
+    let cap = Infinity;
+    for (const o of live) if (o !== car && Math.abs(o.race.d - car.race.d) < 22) {
+      let ds = o.race.s - car.race.s; if (ds < 0) ds += L; if (ds < 150) cap = Math.min(cap, Math.max(0, 3 * (ds - car.cfg.body.L - car.cfg.body.front - car.cfg.body.rear - 22)));
+    }
+    car.capV = cap;
+  }
+  const codes = SIM.cars.filter(c => isCode(c) && c.race);
+  if (RACE.leaderT != null && (codes.every(c => c.race.finishT != null) || t > RACE.leaderT + RACE_WAIT)) raceFinish();
+}
+function raceRecover(car, reason) {
+  if (RACE.phase !== "run" || car.race.finishT != null) return;
+  const tr = raceTrack(), R = car.race, [ix, iy] = irWorld(car), w = tr.nearestWhite(ix, iy); if (!w || !car.worker) return;
+  let pose = null;
+  let lane = w.lane;
+  for (let k = 0; k < 25 && !pose; k++) {                          // 다른 차와 겹치면 선을 따라 20 cm씩 뒤로
+    let q = tr.pointAt(w.s - R.irOff[0] - k * 20, lane);
+    while (lane > 1) { const n = tr.nearestWhite(q.x, q.y); if (n && Math.hypot(n.x - q.x, n.y - q.y) < 5) break; lane--; q = tr.pointAt(w.s - R.irOff[0] - k * 20, lane); }   // 그 자리에 그 차로 선이 없으면(3차로 구간 밖) 안쪽 차로
+    const cand = { x: q.x, y: q.y, yaw: q.yaw };
+    if (!SIM.cars.some(o => o !== car && o.status !== "stopped" && polysOverlap(footWorld(car, cand), footWorld(o, o.pose)))) pose = cand;
+  }
+  if (!pose) return;
+  setToggle(car, lane); car.cfg = carConfig(car); car.pendingState = null;
+  car.pose = { ...pose, v: 0, delta: 0, servo: 110, pwm: 0, t: car.pose.t }; car.forcePose = null; car.trail = [];
+  R.recov++; car.busy = true; car.busySince = performance.now(); car.awaitReset = true;
+  car.worker.postMessage({ type: "reset", cfg: { ...car.cfg, start: pose, seed: R.seed + 1000 * R.recov } });   // 위치·토글 바꾸고 Mega 리셋
+  R.off.reset(); R.offFlag = null; R.hint = -1; R.penalty += RACE_REC_PEN;
+  raceEvent(car, { t: RACE.t, type: reason === "stall" ? "stall" : "recover", value: RACE_REC_PEN });
+  raceToast(`${car.name} ${reason === "stall" ? "멈춤" : "이탈"} → ${lane}차로로 복귀 +10 s`);
+}
+function raceHit(car, o) {
+  if (RACE.phase !== "run" || !car.race || !o.race || car.race.finishT != null || o.race.finishT != null) return;
+  const key = [car.id, o.id].sort().join("-"), last = RACE.pair[key]; RACE.pair[key] = RACE.t;
+  if (last != null && RACE.t - last < RACE_HIT_GAP) return;        // 계속 닿아 있거나 2 s 안 재접촉 = 같은 충돌
+  const info = (c, x) => ({ id: c.id, dummy: !isCode(c), s: c.race.s, d: c.race.d, v: c.pose.v || 0, lane: c.race.lane, changing: c.race.hist.changing(RACE.t),
+    contactFront: toCarFrame(c.pose, x.pose.x + x.cfg.body.L / 2 * Math.cos(x.pose.yaw), x.pose.y + x.cfg.body.L / 2 * Math.sin(x.pose.yaw))[0] > c.cfg.body.L / 2 });   // 상대 차 중심이 내 앞 절반에 있으면 앞으로 받음
+  const r = Race.judgeHit(info(car, o), info(o, car), { L: raceTrack().L });
+  for (const id of r.penalized) { const c = SIM.cars.find(x => x.id === id); c.race.penalty += RACE_HIT_PEN; raceEvent(c, { t: RACE.t, type: "pen5", value: RACE_HIT_PEN }); }
+  if (r.penalized.length) raceToast(`충돌 (${r.reason === "rear" ? "후방 추돌" : "차로 변경 중"}) → ${r.penalized.map(id => SIM.cars.find(x => x.id === id).name).join(", ")} +5 s`);
+  else if (r.reason === "side") raceEvent(car, { t: RACE.t, type: "side", value: o.id });
+}
+function raceRows() {
+  return Race.classify(SIM.cars.filter(c => isCode(c) && c.race).map(c => { const ev = c.race.events, lapEv = ev.filter(e => e.type === "lap");
+    const n = k => ev.filter(e => e.type === k).length;
+    return { id: c.id, name: c.name, laps: c.race.lap.laps, finishT: c.race.finishT ?? lapEv.at(-1)?.t ?? null, penalty: c.race.penalty, best: c.race.lap.best,
+      note: [n("recover") && `이탈 복귀 ${n("recover")}`, n("stall") && `멈춤 복귀 ${n("stall")}`, n("pen5") && `충돌 ${n("pen5")}`].filter(Boolean).join(" · ") || "—" }; }));
+}
+function raceFinish() {
+  RACE.rows = raceRows(); RACE.phase = "done";
+  const R = REC.cur; if (R) R.raceRows = RACE.rows;
+  recFinish("경기 끝."); SIM.cars.forEach(c => { if (c.status !== "stopped") { c.status = "paused"; } });   // 결과를 볼 수 있게 제자리에 멈춤
+  renderTower(true); raceToast("경기 끝 — 결과는 오른쪽 기록모드 카드"); renderSimUI();
+}
+function raceStop() {
+  if (RACE.phase === "idle") return;
+  const was = RACE.phase; RACE.phase = "idle"; recFinish(was === "done" ? undefined : "경기 중단.");
+  SIM.cars.forEach(stopCar); $("raceLights").hidden = true; $("raceTower").hidden = true; $("raceToast").hidden = true; placeGrid(); renderSimUI();
+}
+function renderTower(force) {                                     // 순위표: 순위 · 차 · 랩 · 앞차 간격 · 최고 랩 · 페널티
+  const el = $("raceTower");
+  if (!RACE.on || RACE.phase === "idle" || RACE.phase === "prep") { el.hidden = true; return; }
+  const now = performance.now(); if (!force && now - RACE.towerAt < 200) return; RACE.towerAt = now;
+  const cars = SIM.cars.filter(c => isCode(c) && c.race).sort((a, b) => (b.race.finishT != null) - (a.race.finishT != null) || b.race.prog - a.race.prog);
+  el.hidden = false;
+  el.innerHTML = `<div class="rt-h">${RACE.phase === "done" ? "결과" : `랩 ${Math.min(RACE.laps, Math.max(0, ...cars.map(c => c.race.lap.laps + 1)))}/${RACE.laps}`} · ${fmtT(RACE.t)}</div>` + cars.map((c, i) => {
+    const R = c.race, a = cars[i - 1]; let gap = "";
+    if (a) { const at = a.race.marks[Math.floor(R.prog / 50)]; gap = at != null ? `+${((RACE.t - at) / 1000).toFixed(1)}` : ""; }
+    const st = R.finishT != null ? "🏁" : R.offFlag ? `<button type="button" data-rcv="${c.id}">복귀</button>` : "";
+    return `<div class="rt-r"><b>${i + 1}</b><i style="background:var(--${c.color})"></i><span class="rt-n">${esc(c.name)}</span><span>${R.lap.laps}</span><span>${gap}</span><span>${fmtT(R.lap.best)}</span><span class="rt-p">${R.penalty ? "+" + R.penalty / 1000 : ""}</span>${st}</div>`; }).join("");
+  el.querySelectorAll("[data-rcv]").forEach(b => b.onclick = () => { const c = SIM.cars.find(x => x.id === +b.dataset.rcv); if (c?.race?.offFlag) raceRecover(c, c.race.offFlag); });
+}
+$("raceGo").onclick = raceGo;
+$("raceEnd").onclick = raceStop;
 
 // ---- 로그 목록 ----
 const LOGS = { be: null, uid: null, entries: [], local: [], pending: null };
@@ -2906,7 +3175,8 @@ function logShown() { logResize(); if (LOGP.want) { const e = logAll().find(x =>
 function decodeLog(str) {
   const j = JSON.parse(str), cum = a => { const o = new Float64Array(a.length); let s = 0; for (let i = 0; i < a.length; i++) { s += a[i]; o[i] = s; } return o; };
   return { looks: j.looks, T: cum(j.T), cars: j.cars.map(c => ({ x: cum(c.x), y: cum(c.y), a: cum(c.a), d: cum(c.d), h: c.h || "" })),
-    E: (j.E || []).map(([t, i, k, x, y]) => ({ t, i, j: k, x: x / 10, y: y / 10 })).sort((a, b) => a.t - b.t) };
+    E: (j.E || []).map(([t, i, k, x, y]) => ({ t, i, j: k, x: x / 10, y: y / 10 })).sort((a, b) => a.t - b.t),
+    R: (j.R || []).map(([t, i, type, v]) => ({ t, i, type, v })).sort((a, b) => a.t - b.t) };
 }
 function closeLog(msg) {
   LOGP.entry = null; LOGP.cars = []; LOGP.T = null; LOGP.playing = false; LOGP.E = []; LOGP.marks = []; $("logTicks").innerHTML = "";
@@ -2925,11 +3195,11 @@ async function openLog(e) {
   let D; try { D = decodeLog(str); } catch (er) { $("logMsg").textContent = "기록 형식을 읽지 못했습니다."; return; }
   const meta = e.meta || {};
   LOGP.map = MAPS.find(m => m.id === meta.map) || null;
-  LOGP.T = D.T; LOGP.dur = D.T[D.T.length - 1] || 0; LOGP.t = 0; LOGP.E = D.E;
+  LOGP.T = D.T; LOGP.dur = D.T[D.T.length - 1] || 0; LOGP.t = 0; LOGP.E = D.E; LOGP.R = D.R; LOGP.race = meta.race || null;
   $("logTicks").innerHTML = LOGP.dur ? D.E.map(ev => `<i style="left:${(ev.t / LOGP.dur * 100).toFixed(2)}%" title="충돌 ${fmtS(ev.t)} s"></i>`).join("") : "";
   LOGP.cars = D.cars.map((c, i) => { const look = D.looks[i], B = look.body, hw = B.W / 2 + 1.3, mc = meta.cars?.[i] || {};
     const trail = Array.from(c.x, (x, k) => [x / 10, c.y[k] / 10]);
-    return { id: "r" + i, name: mc.name || `${i + 1}번 차`, color: mc.color || CAR_COLORS[i % 4], src: c, trail, trailN: 1, hit: false, status: "replay",
+    return { id: "r" + i, name: mc.name || `${i + 1}번 차`, color: mc.color || CAR_COLORS[i % CAR_COLORS.length], src: c, trail, trailN: 1, hit: false, status: "replay",
       cfg: { ...look, foot: [[-B.rear, hw], [B.L + B.front, hw], [B.L + B.front, -hw], [-B.rear, -hw]] }, pose: { x: 0, y: 0, yaw: 0, delta: 0 } }; });
   $("logMsg").hidden = !!LOGP.map; if (!LOGP.map) $("logMsg").textContent = `이 기록의 맵(${meta.map})이 지금 맵 목록에 없습니다.`;
   $("logPlay").disabled = $("logSeek").disabled = false;
@@ -2950,6 +3220,19 @@ function logPose() {                                             // t 시각 위
     if (c.src.h) for (let k = i; k >= 0 && t - T[k] < HIT_FLASH; k--) if (c.src.h[k] === "1") { c.flash = true; break; } });
   for (const ev of E) { if (ev.t > t) break; LOGP.marks.push(ev);
     for (const k of [ev.i, ev.j]) { const c = LOGP.cars[k]; if (!c) continue; c.hitN++; if (t - ev.t < HIT_FLASH) c.flash = true; } }
+  logTower(t);
+}
+function logTower(t) {                                           // 기록모드 경기 로그: 그 시각의 랩·페널티 (끝나면 결과 순위)
+  const el = $("logTower"), rc = LOGP.race; if (!rc) { el.hidden = true; return; }
+  const st = LOGP.cars.map((c, i) => ({ c, i, laps: 0, pen: 0, best: null, last: 0 }));
+  for (const e of LOGP.R || []) { if (e.t > t) break; const s = st[e.i]; if (!s) continue;
+    if (e.type === "lap") { s.laps++; s.last = e.t; if (s.best == null || e.v < s.best) s.best = e.v; } else if (e.type === "recover" || e.type === "stall" || e.type === "pen5") s.pen += e.v || 0; }
+  const fin = t >= LOGP.dur && rc.rows?.length;
+  const rows = st.filter(s => LOGP.entry?.meta?.cars?.[s.i]?.kind !== "dummy")
+    .sort(fin ? (a, b) => (rc.rows.find(r => r.i === a.i)?.pos ?? 99) - (rc.rows.find(r => r.i === b.i)?.pos ?? 99) : (a, b) => b.laps - a.laps || a.last - b.last);
+  el.hidden = false;
+  el.innerHTML = `<div class="rt-h">${fin ? "결과" : `랩 ${Math.min(rc.laps, Math.max(0, ...rows.map(s => s.laps + 1)))}/${rc.laps}`} · 시드 ${rc.seed}</div>` + rows.map((s, k) => { const r = fin ? rc.rows.find(x => x.i === s.i) : null;
+    return `<div class="rt-r"><b>${k + 1}</b><i style="background:var(--${s.c.color})"></i><span class="rt-n">${esc(s.c.name)}</span><span>${s.laps}</span><span>${r ? fmtT(r.total) : ""}</span><span>${fmtT(s.best)}</span><span class="rt-p">${s.pen ? "+" + s.pen / 1000 : ""}</span></div>`; }).join("");
 }
 const fmtS = ms => (ms / 1000).toFixed(1);
 function logUI() {
@@ -3027,6 +3310,7 @@ async function initSim() {
   renderSimUI(); fitSim();
   requestAnimationFrame(simFrame);
   initGarage();
+  if (tab === "race") showTab("race");
 }
 
 
@@ -3034,11 +3318,12 @@ async function initSim() {
 if (fresh) makeDefault();
 buildBody(); setWires(showWires); loadColors(); changed(true);
 let tab = "vehicle"; try { tab = localStorage.getItem("irsim.tab") || "vehicle"; } catch (e) {}
-if (location.hash === "#sim") tab = "sim"; if (location.hash === "#vehicle") tab = "vehicle"; if (location.hash === "#log") tab = "log";
-if (tab !== "sim" && tab !== "log") tab = "vehicle";
-showTab(tab);
+if (location.hash === "#sim") tab = "sim"; if (location.hash === "#vehicle") tab = "vehicle"; if (location.hash === "#log") tab = "log"; if (location.hash === "#race") tab = "race";
+if (!["sim", "log", "race"].includes(tab)) tab = "vehicle";
 requestAnimationFrame(() => { resize(); fit(); });
 histReset();
+window.__irsim = { SIM, RACE, LOGS, raceTrack, irWorld, dipComp, removeCar };   // 통합 시험(tests/race_e2e.js)용 읽기 창구
+showTab(tab === "race" ? "sim" : tab);                         // 레이스 탭은 맵·차를 다 불러온 뒤(initSim 끝)에 들어감
 initSim();
 })();
 </script>
