@@ -78,7 +78,7 @@ const Race = (() => {
 
   // ---------- 이탈·멈춤 ----------
   // 판정점(후륜축 중심)이 노란 경계선 밖 0~hardMargin(3 s 영역)이면 holdMs 이어질 때, hardMargin 밖(즉시 영역)이면 바로 이탈
-  function makeOffTrack(track, { margin = 0, hardMargin = 30, holdMs = 3000, stallMs = 5000, stallV = 2 } = {}) {
+  function makeOffTrack(track, { margin = 0, hardMargin = 45, holdMs = 3000, stallMs = 5000, stallV = 2 } = {}) {
     let outSince = null, stillSince = null, hint = -1;
     return {
       update(t, x, y, v) {
