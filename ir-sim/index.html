@@ -715,7 +715,7 @@ canvas#logCv { display: block; width: 100%; height: max(360px, calc(100dvh - 150
         <p class="sub" style="margin:8px 0 0">그리드 (1번 = 폴, 1·2차로 번갈아)</p>
         <ol class="race-grid" id="raceGrid"></ol>
         <div class="row" style="gap:6px"><button type="button" id="raceGo" class="primary">경기 시작</button><button type="button" id="raceEnd">경기 끝내기</button></div>
-        <p class="sub" style="margin:6px 0 0">이탈(앞 IR 센서열 중심이 차로 영역 밖 30 cm 넘으면 바로, 10~30 cm면 3 s)·멈춤(5 s) → 가장 가까운 흰 선으로 복귀·Mega 리셋 +10 s. 충돌: 같은 차로 뒤차, 차로 변경 중이면 둘 다 +10 s. 경기는 자동으로 로그 녹화</p>
+        <p class="sub" style="margin:6px 0 0">이탈(후륜축 중심이 노란 선 밖 주황 영역(0~30 cm)에 3 s, 빨간 점선 밖이면 바로)·멈춤(5 s) → 가장 가까운 흰 선으로 복귀·Mega 리셋 +10 s. 충돌: 같은 차로 뒤차, 차로 변경 중이면 둘 다 +10 s. 경기는 자동으로 로그 녹화</p>
         <p class="msg" id="raceMsg"></p>
         <div id="raceResult"></div>
       </div>
@@ -2312,6 +2312,7 @@ function drawBoard(V, m, cars, follow, live, names = true, marks = []) {
   const world = () => g.setTransform(scam.s, 0, 0, -scam.s, W / 2 - scam.x * scam.s, H / 2 + scam.y * scam.s);
   if (m) {
     world();
+    if (live && RACE.on && RACE_MAPS.includes(m.id)) drawRaceZones(g, scam.s);   // 레이스: 노란 선 밖 탈락 영역
     g.lineWidth = m.lineWidth; g.lineJoin = "round"; g.lineCap = "butt";
     for (const { p, color } of pathsFor(m)) { g.strokeStyle = color; g.stroke(p); }
     // 출발선
@@ -2940,7 +2941,7 @@ async function recFinish(why) {
 $("recTog").onchange = () => { if (!$("recTog").checked) recFinish(); recShow(); };
 
 // ================= 기록모드 (설계: claude/race_record_mode.md, 판정 로직: race.js) =================
-// F1 결승 규칙: 그리드 출발, 신호 5개 소등 = 시각 0 + Mega 동시 부팅, N랩. 이탈(앞 IR 센서열 중심이 허용 영역 밖 30 cm 초과 즉시, 10 cm 초과 3 s)·멈춤(5 s) → 복귀 +10 s,
+// F1 결승 규칙: 그리드 출발, 신호 5개 소등 = 시각 0 + Mega 동시 부팅, N랩. 이탈(후륜축 중심이 노란 경계선 밖 30 cm 초과 즉시, 0~30 cm 3 s)·멈춤(5 s) → 복귀 +10 s,
 // 충돌 → 같은 차로 뒤차 / 변경 중이면 둘 다 +10 s. 기록은 시뮬레이션 시각. 차 6대(코드 차 2대)
 const RACE_MAPS = ["R5_monza_like", "R6_yeongam", "R7_monza_3lane", "R8_yeongam_3lane"];
 const RACE = { on: false, laps: 3, auto: true, seed: 1, phase: "idle", t: 0, lt: 0, track: null, trackId: null, leaderT: null, rows: null, pair: {}, toast: null, towerAt: 0 };
@@ -2949,6 +2950,21 @@ const maxCars = () => RACE.on ? 6 : 4;
 const isCode = c => c.kind !== "dummy";
 const fmtT = ms => ms == null || !isFinite(ms) ? "—" : `${Math.floor(ms / 60000)}:${((ms % 60000) / 1000).toFixed(3).padStart(6, "0")}`;
 function raceTrack() { if (RACE.trackId !== SIM.mapId) { RACE.track = Race.buildTrack(curMap()); RACE.trackId = SIM.mapId; } return RACE.track; }
+const RACE_ZONE = 30;
+function raceZonePaths() {                                        // 노란 선 밖 0~30 cm(3 s 영역) 띠와 30 cm 경계선 (맵마다 한 번)
+  const tr = raceTrack(); if (RACE.zoneId === SIM.mapId) return RACE.zones;
+  const side = (k, off) => { const P = []; for (let s = 0; s <= tr.L; s += 5) { const a = tr.pointAt(s, 1), n = tr.normalAt(s), y = tr.yellowAt(s)[k], d = y + (k ? off : -off); P.push([a.x + n[0] * d, a.y + n[1] * d]); } return P; };
+  const band = new Path2D(), edge = new Path2D();
+  for (const k of [0, 1]) { const a = side(k, 0), b = side(k, RACE_ZONE);
+    a.forEach(([x, y], i) => i ? band.lineTo(x, y) : band.moveTo(x, y)); band.closePath(); b.slice().reverse().forEach(([x, y], i) => i ? band.lineTo(x, y) : band.moveTo(x, y)); band.closePath();
+    b.forEach(([x, y], i) => i ? edge.lineTo(x, y) : edge.moveTo(x, y)); edge.closePath(); }
+  RACE.zones = { band, edge }; RACE.zoneId = SIM.mapId; return RACE.zones;
+}
+function drawRaceZones(g, scale) {
+  const z = raceZonePaths();
+  g.fillStyle = "rgba(242, 169, 59, 0.16)"; g.fill(z.band, "evenodd");
+  g.strokeStyle = "rgba(229, 72, 77, 0.8)"; g.lineWidth = 1.5 / scale * dpr(); g.setLineDash([6 / scale * dpr(), 5 / scale * dpr()]); g.stroke(z.edge); g.setLineDash([]);
+}
 function irOffset(car) {                                          // 앞 IR 센서열 중심 (차체 좌표)
   const B = car.cfg.body, f = car.cfg.irAll.filter(q => q.x > B.L / 2);
   return f.length ? [f.reduce((a, q) => a + q.x, 0) / f.length, f.reduce((a, q) => a + q.y, 0) / f.length] : [B.L + B.front, 0];
@@ -3057,7 +3073,7 @@ function raceTick() {
         R.finishT = t; if (RACE.leaderT == null) { RACE.leaderT = t; raceToast(`🏁 ${car.name} 완주 · 체커기`); } }
     }
     if (isCode(car) && R.finishT == null && car.status === "running") {
-      const st = R.off.update(t, ix, iy, car.pose.v || 0);
+      const st = R.off.update(t, car.pose.x, car.pose.y, car.pose.v || 0);   // 이탈 판정점 = 후륜축 중심 (노란 선 밖 0~30 cm 3 s, 30 cm 밖 즉시)
       if (st === "off" || st === "stall") { if (RACE.auto) raceRecover(car, st); else if (!R.offFlag) { R.offFlag = st; raceToast(`${car.name} ${st === "off" ? "이탈" : "멈춤"} — 순위표에서 복귀`); } }
       else if (st === "ok" && R.offFlag) R.offFlag = null;                 // 수동모드: 스스로 돌아오면 복귀 버튼 내림
     }

@@ -2,11 +2,12 @@
 const Race = (() => {
   const LANE_W = 45;
   const isWhite = l => (l.ir ?? 0) >= 0.85;
+  const isYellow = l => !isWhite(l) && (l.ir ?? 0) > 0.5;          // 노란 경계선 (IR 반사 0.8)
 
   // ---------- 코스 좌표 ----------
   // 1차로 선(맵 start에 가장 가까운 닫힌 흰 선)을 기준 경로로, 진행 거리 s ∈ [0, L), 바깥쪽 + 횡거리 d
   function buildTrack(map) {
-    const st = map.start, whites = map.lines.filter(isWhite);
+    const st = map.start, whites = map.lines.filter(isWhite), yellows = map.lines.filter(isYellow);
     const nearestIdx = pts => { let bi = 0, bd = Infinity; pts.forEach((p, i) => { const d = (p[0] - st.x) ** 2 + (p[1] - st.y) ** 2; if (d < bd) { bd = d; bi = i; } }); return [bi, bd]; };
     let base = null, bestD = Infinity;
     for (const l of whites) if (l.closed) { const [i, d] = nearestIdx(l.pts); if (d < bestD) { bestD = d; base = { l, i }; } }
@@ -37,6 +38,15 @@ const Race = (() => {
       outer[i] = o; }
     for (let k = 0; k < 2; k++) for (let i = 0; i < n; i++) if (outer[i] < LANE_W - 3) outer[i] = Math.max(outer[(i + n - 1) % n], outer[(i + 1) % n], outer[i]);   // 선 점 틈 메움
 
+    // 1차로 점마다 안쪽·바깥 노란 경계선의 d (법선 위 노란 선 점의 최소·최대). 노란 선이 없으면 흰 선 ±3 cm
+    const yIn = new Float32Array(n).fill(NaN), yOut = new Float32Array(n).fill(NaN), ygrid = new Map();
+    yellows.forEach(l => l.pts.forEach(q => { const k = key(Math.floor(q[0] / CELL), Math.floor(q[1] / CELL)); if (!ygrid.has(k)) ygrid.set(k, []); ygrid.get(k).push(q); }));
+    for (let i = 0; i < n; i++) { const p = P[i], r = 2 * LANE_W + 40;
+      for (let cx = Math.floor((p[0] - r) / CELL); cx <= Math.floor((p[0] + r) / CELL); cx++) for (let cy = Math.floor((p[1] - r) / CELL); cy <= Math.floor((p[1] + r) / CELL); cy++) {
+        const a = ygrid.get(key(cx, cy)); if (a) for (const q of a) { const dx = q[0] - p[0], dy = q[1] - p[1]; if (Math.abs(dx * TX[i] + dy * TY[i]) >= 2) continue;
+          const d = dx * NX(i) + dy * NY(i); if (d < 0 && !(d > yIn[i])) yIn[i] = d; if (d > 0 && !(d < yOut[i])) yOut[i] = d; } } }
+    for (let i = 0; i < n; i++) { if (isNaN(yIn[i])) yIn[i] = -3; if (isNaN(yOut[i]) || yOut[i] < outer[i]) yOut[i] = outer[i] + 3; }
+
     const idxAt = s => { s = ((s % L) + L) % L; let lo = 0, hi = n - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (S[m] <= s) lo = m; else hi = m - 1; } return lo; };
     function project(x, y, hint) {
       let bi = -1, bd = Infinity;
@@ -48,6 +58,7 @@ const Race = (() => {
       return { s, d: dx * NX(bi) + dy * NY(bi), i: bi, yaw: Math.atan2(TY[bi], TX[bi]) };
     }
     const outerAt = s => outer[idxAt(s)];
+    const yellowAt = s => { const i = idxAt(s); return [yIn[i], yOut[i]]; };
     const normalAt = s => { const i = idxAt(s); return [NX(i), NY(i)]; };
     function nearestWhite(x, y) {
       let best = null, bd = Infinity;
@@ -62,17 +73,17 @@ const Race = (() => {
       if (lane === 1) return { x, y, yaw };
       const w = nearestWhite(x, y); return w && Math.hypot(w.x - x, w.y - y) < 10 ? { x: w.x, y: w.y, yaw } : { x, y, yaw };
     }
-    return { L, project, outerAt, normalAt, nearestWhite, pointAt, laneW: LANE_W };
+    return { L, project, outerAt, yellowAt, normalAt, nearestWhite, pointAt, laneW: LANE_W };
   }
 
   // ---------- 이탈·멈춤 ----------
-  // 허용 영역(1차로 선 ~ 가장 바깥 흰 선) 밖으로 hardMargin 넘으면 바로 이탈, margin~hardMargin이면 holdMs 이어질 때 이탈
-  function makeOffTrack(track, { margin = 10, hardMargin = 30, holdMs = 3000, stallMs = 5000, stallV = 2 } = {}) {
+  // 판정점(후륜축 중심)이 노란 경계선 밖 0~hardMargin(3 s 영역)이면 holdMs 이어질 때, hardMargin 밖(즉시 영역)이면 바로 이탈
+  function makeOffTrack(track, { margin = 0, hardMargin = 30, holdMs = 3000, stallMs = 5000, stallV = 2 } = {}) {
     let outSince = null, stillSince = null, hint = -1;
     return {
       update(t, x, y, v) {
         const p = track.project(x, y, hint); hint = p.i;
-        const over = Math.max(-p.d, p.d - track.outerAt(p.s));   // 영역 밖으로 나간 거리 (안이면 음수)
+        const [yi, yo] = track.yellowAt(p.s), over = Math.max(yi - p.d, p.d - yo);   // 노란 선 밖으로 나간 거리 (안이면 음수)
         if (over > hardMargin) { stillSince = null; return "off"; }
         if (over > margin) { stillSince = null; if (outSince == null) outSince = t; return t - outSince >= holdMs ? "off" : "candidate"; }
         outSince = null;
